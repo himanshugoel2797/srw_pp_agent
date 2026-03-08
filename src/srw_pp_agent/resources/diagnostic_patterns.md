@@ -80,9 +80,29 @@ to give each estimate:
   should state this and rely more on convergence tests and idealization
   tests for validation.
 
-- Flux conservation is a strong independent check. If flux is conserved
-  but FWHM disagrees with estimate, the simulation is likely correct and
-  the estimate is the problem.
+- **Flux conservation** is a necessary but not sufficient condition for
+  correctness. SRW reports intensity in **ph/s/mm²/0.1%bw** — a spectral
+  flux *density*. Checking conservation requires integrating over the
+  mesh area (the server already does this), not comparing raw peak
+  intensities. For fully coherent (monochromatic) simulations the
+  0.1%bw factor is constant and cancels in any ratio.
+
+  **Crystal monochromators are an expected exception:** they select a
+  narrow bandwidth slice, so total flux *should* drop across the
+  monochromator. A flux ratio < 1 after a crystal is normal and should
+  not be flagged as a mesh problem.
+
+  If flux is NOT conserved (and no bandwidth-selecting element is
+  present), the simulation has a problem — usually the mesh is too
+  small. But if flux IS conserved, the simulation may still be wrong:
+  good flux only means the mesh captured all the light, not that the
+  phase was sampled correctly. When the FWHM disagrees with the
+  analytical estimate despite good flux conservation, the agent must
+  still explain WHY: is the estimate unreliable (e.g. non-Gaussian
+  beam, Fresnel number ~1, heavy clipping)? Is the propagator mode
+  inappropriate? Is the resolution too low to resolve the phase
+  correctly? Simply noting "flux is conserved" is not enough to close
+  the diagnostic.
 
 - Always check edge_intensity_ratio before diagnosing any other issue.
   If the beam is hitting the mesh boundary, nothing else is trustworthy.
