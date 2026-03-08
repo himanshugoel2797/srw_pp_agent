@@ -14,8 +14,12 @@ try:
     import srwlib as srwl
     from srwlib import srwl as srwl_main
 except ImportError:
-    srwl = None
-    srwl_main = None
+    try:
+        import srwpy.srwlib as srwl
+        from srwpy.srwlib import srwl as srwl_main
+    except ImportError:
+        srwl = None
+        srwl_main = None
 
 
 def extract_metrics(wfr: Any) -> dict:
@@ -79,8 +83,12 @@ def extract_intensity_2d(wfr: Any) -> tuple[np.ndarray, dict]:
     ny = mesh.ny
 
     # Use srwl to calculate intensity (polarization component 6 = total)
-    intensity_flat = srwl_main.CalcIntFromElecField(wfr, 6, 0, 3, mesh.eStart, 0, 0)
-    intensity_2d = np.array(intensity_flat).reshape((ny, nx))
+    # CalcIntFromElecField(_arI, _inWfr, _inPol, _inIntType, _inDepType, _inE, _inX, _inY)
+    # _inIntType=0 (single-electron intensity), _inDepType=3 (vs x&y)
+    import array
+    ar_intensity = array.array("f", [0] * nx * ny)
+    srwl_main.CalcIntFromElecField(ar_intensity, wfr, 6, 0, 3, mesh.eStart, 0, 0)
+    intensity_2d = np.array(ar_intensity).reshape((ny, nx))
 
     mesh_info = {
         "nx": nx,

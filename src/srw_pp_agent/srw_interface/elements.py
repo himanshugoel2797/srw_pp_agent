@@ -8,19 +8,47 @@ from __future__ import annotations
 
 from typing import Any
 
+import math
+
 try:
     from srwlib import (
         SRWLOptA, SRWLOptC, SRWLOptD, SRWLOptL,
-        SRWLOptMirEl, SRWLOptMirCyl, SRWLOptMirPl,
+        SRWLOptMirEl, SRWLOptMirPl, SRWLOptMirTor,
     )
 except ImportError:
-    SRWLOptA = None
-    SRWLOptD = None
-    SRWLOptL = None
-    SRWLOptC = None
-    SRWLOptMirEl = None
-    SRWLOptMirCyl = None
-    SRWLOptMirPl = None
+    try:
+        from srwpy.srwlib import (
+            SRWLOptA, SRWLOptC, SRWLOptD, SRWLOptL,
+            SRWLOptMirEl, SRWLOptMirPl, SRWLOptMirTor,
+        )
+    except ImportError:
+        SRWLOptA = None
+        SRWLOptD = None
+        SRWLOptL = None
+        SRWLOptC = None
+        SRWLOptMirEl = None
+        SRWLOptMirPl = None
+        SRWLOptMirTor = None
+
+
+def _mirror_orientation_vectors(grazing_angle_rad: float, orientation: str = "vertical"):
+    """Compute SRW normal and tangential vectors from grazing angle and orientation.
+
+    Args:
+        grazing_angle_rad: Grazing angle in radians.
+        orientation: "vertical" (deflects vertically) or "horizontal".
+
+    Returns:
+        (nvx, nvy, nvz, tvx, tvy) orientation vector components.
+    """
+    cos_a = math.cos(grazing_angle_rad)
+    sin_a = math.sin(grazing_angle_rad)
+    if orientation == "vertical":
+        # Mirror deflects beam vertically
+        return 0, cos_a, -sin_a, 0, sin_a, cos_a
+    else:
+        # Mirror deflects beam horizontally
+        return cos_a, 0, -sin_a, sin_a, 0, cos_a
 
 
 def simplified_to_srw_element(element_def: dict) -> Any:
@@ -106,6 +134,7 @@ def _build_mirror(element_def: dict) -> Any:
     grazing_angle = element_def.get("grazing_angle_mrad", 3.0) * 1e-3  # mrad -> rad
     tangential_size = element_def.get("tangential_size_m", 0.4)
     sagittal_size = element_def.get("sagittal_size_m", 0.02)
+    orientation = element_def.get("orientation", "vertical")
     subtype = element_def.get("subtype", "").lower()
 
     # Infer subtype from available parameters when not explicitly set
@@ -117,6 +146,9 @@ def _build_mirror(element_def: dict) -> Any:
         else:
             subtype = "flat"
 
+    # Compute orientation vectors from grazing angle
+    nvx, nvy, nvz, tvx, tvy, _tvz = _mirror_orientation_vectors(grazing_angle, orientation)
+
     if subtype == "elliptical":
         p = element_def.get("object_distance_m", 1e23)
         q = element_def.get("image_distance_m", 1e23)
@@ -126,21 +158,31 @@ def _build_mirror(element_def: dict) -> Any:
             _ang_graz=grazing_angle,
             _size_tang=tangential_size,
             _size_sag=sagittal_size,
+            _nvx=nvx, _nvy=nvy, _nvz=nvz,
+            _tvx=tvx, _tvy=tvy,
         )
     elif subtype == "cylindrical":
         radius = element_def.get("radius_of_curvature_m", 1e23)
-        mirror = SRWLOptMirCyl(
+        focusing_plane = element_def.get("focusing_plane", "tangential")
+        if focusing_plane == "tangential":
+            rt, rs = radius, 1e23
+        else:
+            rt, rs = 1e23, radius
+        mirror = SRWLOptMirTor(
+            _rt=rt,
+            _rs=rs,
             _size_tang=tangential_size,
             _size_sag=sagittal_size,
-            _r=radius,
-            _ang_graz=grazing_angle,
+            _nvx=nvx, _nvy=nvy, _nvz=nvz,
+            _tvx=tvx, _tvy=tvy,
         )
     else:
         # Flat mirror
         mirror = SRWLOptMirPl(
             _size_tang=tangential_size,
             _size_sag=sagittal_size,
-            _ang_graz=grazing_angle,
+            _nvx=nvx, _nvy=nvy, _nvz=nvz,
+            _tvx=tvx, _tvy=tvy,
         )
 
     return mirror

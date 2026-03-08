@@ -16,14 +16,26 @@ try:
         srwl as srwl_main,
     )
 except ImportError:
-    SRWLGsnBm = None
-    SRWLMagFldU = None
-    SRWLMagFldH = None
-    SRWLMagFldC = None
-    SRWLPartBeam = None
-    SRWLRadMesh = None
-    SRWLWfr = None
-    srwl_main = None
+    try:
+        from srwpy.srwlib import (
+            SRWLGsnBm,
+            SRWLMagFldU,
+            SRWLMagFldH,
+            SRWLMagFldC,
+            SRWLPartBeam,
+            SRWLRadMesh,
+            SRWLWfr,
+            srwl as srwl_main,
+        )
+    except ImportError:
+        SRWLGsnBm = None
+        SRWLMagFldU = None
+        SRWLMagFldH = None
+        SRWLMagFldC = None
+        SRWLPartBeam = None
+        SRWLRadMesh = None
+        SRWLWfr = None
+        srwl_main = None
 
 # Default mesh parameters for source wavefront calculation
 DEFAULT_SOURCE_MESH = {
@@ -88,8 +100,11 @@ def create_undulator_source(energy_eV: float, undulator_period_m: float,
     wfr.partBeam = electron_beam
 
     # Calculate SR
-    # Precision parameters: [1=method, step, relPrec, zStartInteg, zEndInteg, nPtInteg, useTermin, sampFact]
-    srwl_main.CalcElecFieldSR(wfr, 0, mag_field, [1, 0.01, 0, 0, 50000, 1, sampling_factor])
+    # Precision: [method, relPrec, zStartInteg, zEndInteg, nPtTraj, useTermin, sampFact]
+    # method=1 (manual step), relPrec=0.01, zStart/zEnd=0 (auto),
+    # nPtTraj=50000 (trajectory points), useTermin=1 (terminating terms),
+    # sampFact=0 when no beamline (disable auto mesh resize)
+    srwl_main.CalcElecFieldSR(wfr, 0, mag_field, [1, 0.01, 0, 0, 50000, 1, 0])
 
     return wfr
 

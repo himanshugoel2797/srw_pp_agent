@@ -11,51 +11,56 @@ from typing import Any, Callable
 try:
     from srwlib import SRWLOptC, srwl as srwl_main
 except ImportError:
-    SRWLOptC = None
-    srwl_main = None
+    try:
+        from srwpy.srwlib import SRWLOptC, srwl as srwl_main
+    except ImportError:
+        SRWLOptC = None
+        srwl_main = None
 
 
 def expand_5_to_12_params(mode: int, range_x: float, range_y: float,
                           resolution_x: float, resolution_y: float) -> list[float]:
-    """Convert the 5 user-facing propagation parameters to the 12-element SRW array.
+    """Convert the 5 user-facing propagation parameters to the SRW parameter array.
 
-    The 12-element array is:
-    [0] auto-resize before (0=no, 1=yes)
-    [1] auto-resize after (0=no, 1=yes)
-    [2] relative precision for propagation with auto-resizing
-    [3] allow semi-analytical treatment (0=no, 1=yes)
-    [4] resize range before: horizontal
-    [5] resize resolution before: horizontal
-    [6] resize range before: vertical
-    [7] resize resolution before: vertical
-    [8] resize range after: horizontal
-    [9] resize resolution after: horizontal
-    [10] resize range after: vertical
-    [11] resize resolution after: vertical
+    The SRW propagation parameter array is:
+    [0] Auto-Resize before propagation (0=no, 1=yes)
+    [1] Auto-Resize after propagation (0=no, 1=yes)
+    [2] Relative precision for auto-resizing (1.0 nominal)
+    [3] Semi-analytical treatment of quadratic phase (0=no, 1=yes)
+    [4] Do resizing on Fourier side using FFT (0=no, 1=yes)
+    [5] Horizontal range resize factor (1.0 = no change)
+    [6] Horizontal resolution resize factor (1.0 = no change)
+    [7] Vertical range resize factor (1.0 = no change)
+    [8] Vertical resolution resize factor (1.0 = no change)
+    [9-11] Optional shift parameters
 
-    The 5 user-facing params map to the "after" resize slots (indices 8-11)
-    with the mode controlling indices 0-3.
+    Mode mapping:
+    - 0: Standard (2 FFTs), no semi-analytical
+    - 1: Quadratic phase subtraction (2 FFTs), semi-analytical=1
+    - 2: Quadratic phase subtraction with fixed grid, semi-analytical=2
+    - 3: From-waist far-field (1 FFT), resize on Fourier side
+    - 4: To-waist far-field (1 FFT), resize on Fourier side
     """
-    # Default: no auto-resize, apply user params as "after" resize
-    params = [0] * 12
+    params = [0, 0, 1.0, 0,
+              0, 1.0, 1.0, 1.0, 1.0,
+              0, 0, 0]
 
     # Set propagation mode
-    if mode in (0, 1, 2):
-        params[0] = 0  # no auto-resize before
-        params[1] = 0  # no auto-resize after
-        params[2] = 1.0  # relative precision
-        params[3] = mode  # semi-analytical treatment / propagator type
+    if mode in (0,):
+        params[3] = 0  # no semi-analytical
+        params[4] = 0  # resize in real space
+    elif mode in (1, 2):
+        params[3] = 1  # semi-analytical treatment of quadratic phase
+        params[4] = 0  # resize in real space
     elif mode in (3, 4):
-        params[0] = 0
-        params[1] = 0
-        params[2] = 1.0
-        params[3] = mode
+        params[3] = 1
+        params[4] = 1  # resize on Fourier side
 
-    # Apply resize factors as "after" parameters
-    params[8] = range_x
-    params[9] = resolution_x
-    params[10] = range_y
-    params[11] = resolution_y
+    # Apply resize factors
+    params[5] = range_x       # horizontal range
+    params[6] = resolution_x  # horizontal resolution
+    params[7] = range_y       # vertical range
+    params[8] = resolution_y  # vertical resolution
 
     return params
 

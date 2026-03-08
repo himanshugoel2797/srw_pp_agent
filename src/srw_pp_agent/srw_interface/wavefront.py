@@ -9,7 +9,10 @@ from typing import Any
 try:
     from srwlib import srwl as srwl_main
 except ImportError:
-    srwl_main = None
+    try:
+        from srwpy.srwlib import srwl as srwl_main
+    except ImportError:
+        srwl_main = None
 
 
 def copy_wavefront(wfr: Any) -> Any:

@@ -58,8 +58,11 @@ def load_beamline(session: TuningSession, beamline_definition: dict | str) -> di
     try:
         session.source_wavefront = create_source_wavefront(source_def)
         source_mesh = get_mesh_info(session.source_wavefront)
-    except Exception:
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
         session.source_wavefront = None
+        session._source_error = str(exc)
         source_mesh = {
             "nx": 0, "ny": 0,
             "range_x_mm": 0.0, "range_y_mm": 0.0,
