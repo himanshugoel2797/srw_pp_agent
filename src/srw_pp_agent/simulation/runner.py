@@ -17,6 +17,7 @@ from typing import Any
 from ..errors import SimulationError
 from ..session import TuningSession
 from ..srw_interface.propagation import expand_5_to_12_params
+from ..srw_interface.source import create_source_wavefront
 from ..srw_interface.wavefront import copy_wavefront, serialize_wavefront
 from ..srw_interface.elements import simplified_to_srw_element
 from .cache import WavefrontCache
@@ -123,7 +124,10 @@ def run_propagation(
             ).to_dict()
 
     # Prepare source wavefront
-    wfr = copy_wavefront(session.source_wavefront)
+    if mesh_params is not None:
+        wfr = create_source_wavefront(session.canonical_definition["source"], mesh_params)
+    else:
+        wfr = copy_wavefront(session.source_wavefront)
 
     # Build request for worker subprocess
     wfr_data = serialize_wavefront(wfr)

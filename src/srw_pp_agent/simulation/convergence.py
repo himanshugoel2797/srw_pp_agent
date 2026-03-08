@@ -56,8 +56,8 @@ def run_convergence_test(
 
     results = []
     for factor in scaling_factors:
-        # Apply scaling
-        _apply_scaling(session, factor, parameter_scaled, axis)
+        # Apply scaling to target element only
+        _apply_scaling(session, factor, parameter_scaled, axis, test_label)
 
         # Run propagation
         run_result = run_propagation(session, up_to_element=element_label)
@@ -96,16 +96,20 @@ def run_convergence_test(
 
 
 def _apply_scaling(session: TuningSession, factor: float,
-                   parameter: str, axis: str) -> None:
-    """Apply scaling factor to propagation params."""
-    for label, params in session.propagation_params.items():
-        if parameter == "resolution":
-            if axis in ("x", "both"):
-                params["resolution_x"] = params.get("resolution_x", 1.0) * factor
-            if axis in ("y", "both"):
-                params["resolution_y"] = params.get("resolution_y", 1.0) * factor
-        else:  # range
-            if axis in ("x", "both"):
-                params["range_x"] = params.get("range_x", 1.0) * factor
-            if axis in ("y", "both"):
-                params["range_y"] = params.get("range_y", 1.0) * factor
+                   parameter: str, axis: str,
+                   target_label: str | None = None) -> None:
+    """Apply scaling factor to propagation params of the target element only."""
+    if target_label is None or target_label not in session.propagation_params:
+        return
+
+    params = session.propagation_params[target_label]
+    if parameter == "resolution":
+        if axis in ("x", "both"):
+            params["resolution_x"] = params.get("resolution_x", 1.0) * factor
+        if axis in ("y", "both"):
+            params["resolution_y"] = params.get("resolution_y", 1.0) * factor
+    else:  # range
+        if axis in ("x", "both"):
+            params["range_x"] = params.get("range_x", 1.0) * factor
+        if axis in ("y", "both"):
+            params["range_y"] = params.get("range_y", 1.0) * factor
