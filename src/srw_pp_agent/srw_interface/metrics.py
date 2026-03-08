@@ -170,10 +170,18 @@ def compute_edge_intensity_ratio(intensity_2d: np.ndarray, axis: str) -> float:
 
 
 def compute_total_flux(intensity_2d: np.ndarray, mesh_info: dict) -> float:
-    """Compute total flux by 2D integration."""
-    dx = (mesh_info["x_fin"] - mesh_info["x_start"]) / max(mesh_info["nx"] - 1, 1)
-    dy = (mesh_info["y_fin"] - mesh_info["y_start"]) / max(mesh_info["ny"] - 1, 1)
-    return float(np.sum(intensity_2d) * dx * dy)
+    """Compute total flux by 2D integration.
+
+    SRW intensity is in ph/s/mm²/0.1%bw.  Mesh coordinates are in metres,
+    so we convert the pixel area from m² to mm² (×1e6) before integrating.
+    For fully coherent (monochromatic) simulations the 0.1%bw factor is
+    constant across the beamline and cancels in any ratio, so the result
+    is effectively in ph/s/0.1%bw.
+    """
+    dx_m = (mesh_info["x_fin"] - mesh_info["x_start"]) / max(mesh_info["nx"] - 1, 1)
+    dy_m = (mesh_info["y_fin"] - mesh_info["y_start"]) / max(mesh_info["ny"] - 1, 1)
+    pixel_area_mm2 = dx_m * dy_m * 1e6  # m² → mm²
+    return float(np.sum(intensity_2d) * pixel_area_mm2)
 
 
 def compute_centroid(intensity_2d: np.ndarray, mesh_info: dict) -> tuple[float, float]:
