@@ -1,0 +1,88 @@
+## Diagnostic Patterns
+
+| Symptom | Likely causes to investigate |
+|---------|----------------------------|
+| FWHM well below diffraction limit | Aliasing; try higher resolution or different propagator mode |
+| FWHM much larger than estimate | Beam clipping (range too small); wrong propagator mode near focus |
+| Asymmetric deviation (x ok, y not) | Astigmatism; try different range/resolution values per axis, or switch to mode 2 with higher point count |
+| Flux loss without apertures | Range too small (beam clipped at edge of mesh) |
+| edge_intensity_ratio > 0 | Beam reaches mesh boundary; increase range before diagnosing anything else |
+| FWHM oscillates with resolution | Not converged; try higher resolution or mode 1/2 |
+| Idealized element gives same result | Propagation params are likely correct for that element |
+| Idealized element gives different result | Realistic element introduces effects (e.g. slope errors, aberrations) that need more careful resolution |
+
+## Interpretation Guidelines
+
+### Trusting analytical estimates
+
+Not all analytical estimates are equally reliable. The agent should use
+the metrics from compute_analytical_estimates to judge how much weight
+to give each estimate:
+
+- **Fully illuminated element (beam_to_aperture_ratio ≥ 1.0 or
+  beam_na > element_na):** The element's physical size is the limiting
+  aperture. The element_na-based diffraction limit is the authoritative
+  estimate for the contribution of this element. The beam underfill
+  doesn't matter because the element truncates the beam.
+
+- **Underfilled element (beam_to_aperture_ratio << 1.0 or
+  beam_na << element_na):** The beam's own divergence sets the effective
+  NA, not the element size. The diffraction limit from element_na will
+  overestimate the spot size. Use effective_na (which equals beam_na
+  in this case) for the diffraction limit.
+
+- **Large object_to_focal_ratio (>>1):** The source is very far from the
+  focusing element relative to its focal length. Geometric
+  demagnification is tiny (image ≈ f, not image ≈ object × f/object).
+  Diffraction almost certainly dominates. If the simulation shows a
+  spot much larger than the diffraction limit, suspect demagnification
+  is not the cause — look at aberrations or propagation errors instead.
+
+- **Small object_to_focal_ratio (~1-3):** Source is relatively close to
+  the optic. The geometric image size can be comparable to the
+  diffraction limit. Both contributions matter and the FWHM will be
+  somewhere between the two (not simply the max, since they convolve).
+
+- **Fresnel number >>1 at an aperture:** Geometric optics approximation
+  is reasonable. Diffraction from the aperture edges is negligible and
+  shouldn't significantly broaden the beam beyond the geometric
+  prediction.
+
+- **Fresnel number ~1 at an aperture:** Diffraction from the aperture
+  is significant. The beam profile will have diffraction fringes and the
+  FWHM will differ from the geometric prediction. The Gaussian
+  analytical estimate will be unreliable here — rely on convergence
+  tests and idealization tests instead.
+
+- **Fresnel number <<1:** Far-field / Fraunhofer regime. The beam
+  profile is essentially the Fourier transform of the aperture, and
+  the spot size is set entirely by diffraction.
+
+### Wavefront curvature and propagator modes
+
+- **Large wavefront_roc (relative to propagation distance):** The
+  wavefront is nearly flat. Mode 0 is appropriate.
+
+- **Small wavefront_roc (comparable to or less than propagation
+  distance):** The quadratic phase varies rapidly across the mesh.
+  Modes 1-4 are needed to factor out this curvature. The ratio
+  distance_from_waist / rayleigh_range indicates how far from flat
+  the wavefront is — values >>1 mean strong curvature.
+
+### General principles
+
+- A 10-20% deviation between simulation and analytical estimate is often
+  acceptable and explainable (non-Gaussian beam shape, clipping effects).
+  The agent should reason about WHY the deviation exists, not just flag it.
+
+- When the analytical estimate is known to be unreliable (e.g. beam is
+  heavily clipped, far from Gaussian, Fresnel number ~1), the agent
+  should state this and rely more on convergence tests and idealization
+  tests for validation.
+
+- Flux conservation is a strong independent check. If flux is conserved
+  but FWHM disagrees with estimate, the simulation is likely correct and
+  the estimate is the problem.
+
+- Always check edge_intensity_ratio before diagnosing any other issue.
+  If the beam is hitting the mesh boundary, nothing else is trustworthy.

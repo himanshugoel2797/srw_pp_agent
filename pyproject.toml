@@ -1,0 +1,26 @@
+[project]
+name = "srw-pp-agent"
+version = "0.1.0"
+description = "MCP server for SRW beamline propagation parameter tuning"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.2.0",
+    "numpy",
+]
+
+[project.optional-dependencies]
+srw = ["srwpy"]
+dev = ["pytest", "pytest-asyncio"]
+
+[project.scripts]
+srw-pp-agent = "srw_pp_agent.server:main"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
