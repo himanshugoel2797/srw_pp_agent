@@ -18,16 +18,16 @@ class TestParseBeamlineDefinition:
         result = parse_beamline_definition(SAMPLE_BEAMLINE)
         assert "source" in result
         assert "elements" in result
-        assert len(result["elements"]) == 5
+        assert len(result["elements"]) == 7
         assert result["elements"][0]["label"] == "D1"
 
     def test_parse_assigns_cumulative_distances(self):
         result = parse_beamline_definition(SAMPLE_BEAMLINE)
-        # D1=10m, M1@10m, D2=5m@15m, L1@15m, D3=3m@18m
+        # D1=10m, M1@10m, D2=5m@15m, M2_cyl@15m, D2b=2m@17m, L1@17m, D3=3m@20m
         assert result["elements"][0]["cumulative_distance_m"] == 10.0
         assert result["elements"][1]["cumulative_distance_m"] == 10.0  # mirror at 10m
         assert result["elements"][2]["cumulative_distance_m"] == 15.0  # D2 ends at 15m
-        assert result["elements"][4]["cumulative_distance_m"] == 18.0  # D3 ends at 18m
+        assert result["elements"][6]["cumulative_distance_m"] == 20.0  # D3 ends at 20m
 
     def test_parse_auto_labels(self):
         beamline = {

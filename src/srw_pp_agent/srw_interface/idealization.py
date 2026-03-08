@@ -73,7 +73,7 @@ def get_idealization_info(element_def: dict) -> dict:
     focal_length = compute_ideal_focal_length(element_def)
     aperture = compute_ideal_aperture(element_def)
 
-    return {
+    info = {
         "element_label": element_def.get("label", "unknown"),
         "original_type": element_def.get("type", "unknown"),
         "ideal_focal_length_m": focal_length,
@@ -85,9 +85,23 @@ def get_idealization_info(element_def: dict) -> dict:
         ),
     }
 
+    if element_def.get("type", "").lower() == "mirror":
+        subtype = element_def.get("subtype", "")
+        if not subtype:
+            subtype = "elliptical" if focal_length is not None else "flat"
+        info["mirror_subtype"] = subtype
+        if subtype == "cylindrical":
+            info["focusing_plane"] = element_def.get("focusing_plane", "tangential")
+
+    return info
+
 
 def _idealize_mirror(element_def: dict) -> list[dict]:
-    """Mirror → thin lens + rectangular aperture (projected at grazing angle)."""
+    """Mirror → thin lens + rectangular aperture (projected at grazing angle).
+
+    For cylindrical mirrors the thin lens focuses in one plane only
+    (fx or fy is set to 1e23 for the non-focusing plane).
+    """
     focal_length = element_def.get("focal_length_m")
     if focal_length is None:
         # Flat mirror — replace with just an aperture
@@ -102,11 +116,30 @@ def _idealize_mirror(element_def: dict) -> list[dict]:
     aperture["type"] = "aperture"
     aperture["label"] = f"{label}_aperture"
 
-    lens = {
-        "type": "lens",
-        "focal_length_m": focal_length,
-        "label": label,
-    }
+    subtype = element_def.get("subtype", "elliptical").lower()
+    if subtype == "cylindrical":
+        focusing_plane = element_def.get("focusing_plane", "tangential").lower()
+        orientation = element_def.get("orientation", "vertical").lower()
+        # Determine which optical axis (x or y) the mirror focuses in
+        # A vertical-deflecting cylindrical mirror focusing tangentially
+        # focuses the vertical (y) direction
+        if (orientation == "vertical" and focusing_plane == "tangential") or \
+           (orientation == "horizontal" and focusing_plane == "sagittal"):
+            fx, fy = 1e23, focal_length
+        else:
+            fx, fy = focal_length, 1e23
+        lens = {
+            "type": "lens",
+            "fx": fx,
+            "fy": fy,
+            "label": label,
+        }
+    else:
+        lens = {
+            "type": "lens",
+            "focal_length_m": focal_length,
+            "label": label,
+        }
 
     return [aperture, lens]
 

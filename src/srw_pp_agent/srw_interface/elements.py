@@ -9,13 +9,17 @@ from __future__ import annotations
 from typing import Any
 
 try:
-    from srwlib import SRWLOptA, SRWLOptC, SRWLOptD, SRWLOptL, SRWLOptMirEl, SRWLOptMirPl
+    from srwlib import (
+        SRWLOptA, SRWLOptC, SRWLOptD, SRWLOptL,
+        SRWLOptMirEl, SRWLOptMirCyl, SRWLOptMirPl,
+    )
 except ImportError:
     SRWLOptA = None
     SRWLOptD = None
     SRWLOptL = None
     SRWLOptC = None
     SRWLOptMirEl = None
+    SRWLOptMirCyl = None
     SRWLOptMirPl = None
 
 
@@ -89,22 +93,49 @@ def _build_aperture(element_def: dict) -> Any:
 
 
 def _build_mirror(element_def: dict) -> Any:
-    """Build an SRW mirror element from simplified definition."""
+    """Build an SRW mirror element from simplified definition.
+
+    Mirror subtypes (determined by "subtype" key):
+    - "flat": Flat mirror (no focusing). Default when no focal_length_m given.
+    - "elliptical": Elliptical mirror (focuses in both tangential and sagittal planes).
+      Specified via object_distance_m (p) and image_distance_m (q).
+      Default when focal_length_m is given without an explicit subtype.
+    - "cylindrical": Cylindrical mirror (focuses in one plane only).
+      Requires a "focusing_plane" key ("tangential" or "sagittal").
+      Uses a radius of curvature R = 2*p*q/(p+q)/sin(theta).
+    """
     grazing_angle = element_def.get("grazing_angle_mrad", 3.0) * 1e-3  # mrad -> rad
     tangential_size = element_def.get("tangential_size_m", 0.4)
     sagittal_size = element_def.get("sagittal_size_m", 0.02)
     focal_length = element_def.get("focal_length_m")
+    subtype = element_def.get("subtype", "").lower()
 
-    if focal_length is not None:
-        # Curved mirror -> elliptical mirror approximation
-        # For a grazing-incidence mirror: R = 2*f/sin(theta)
-        radius = 2 * focal_length / max(grazing_angle, 1e-10)
+    # Infer subtype from available parameters when not explicitly set
+    if not subtype:
+        if focal_length is not None:
+            subtype = "elliptical"
+        else:
+            subtype = "flat"
+
+    if subtype == "elliptical":
+        p = element_def.get("object_distance_m", 1e23)
+        q = element_def.get("image_distance_m", focal_length or 1e23)
         mirror = SRWLOptMirEl(
-            _p=element_def.get("object_distance_m", 1e23),
-            _q=element_def.get("image_distance_m", focal_length),
+            _p=p,
+            _q=q,
             _ang_graz=grazing_angle,
             _size_tang=tangential_size,
             _size_sag=sagittal_size,
+        )
+    elif subtype == "cylindrical":
+        p = element_def.get("object_distance_m", 1e23)
+        q = element_def.get("image_distance_m", focal_length or 1e23)
+        mirror = SRWLOptMirCyl(
+            _size_tang=tangential_size,
+            _size_sag=sagittal_size,
+            _p=p,
+            _q=q,
+            _ang_graz=grazing_angle,
         )
     else:
         # Flat mirror
@@ -153,10 +184,16 @@ def get_element_summary(element_def: dict) -> dict:
     elif elem_type == "lens":
         key_params["focal_length_m"] = element_def.get("focal_length_m")
     elif elem_type == "mirror":
+        subtype = element_def.get("subtype", "")
+        if not subtype:
+            subtype = "elliptical" if element_def.get("focal_length_m") is not None else "flat"
+        key_params["subtype"] = subtype
         key_params["grazing_angle_mrad"] = element_def.get("grazing_angle_mrad")
         key_params["focal_length_m"] = element_def.get("focal_length_m")
         key_params["tangential_size_m"] = element_def.get("tangential_size_m")
         key_params["sagittal_size_m"] = element_def.get("sagittal_size_m")
+        if subtype == "cylindrical":
+            key_params["focusing_plane"] = element_def.get("focusing_plane", "tangential")
     elif elem_type == "aperture":
         key_params["shape"] = element_def.get("shape")
         key_params["size_x_m"] = element_def.get("size_x_m")

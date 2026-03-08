@@ -58,12 +58,12 @@ def compute_analytical_estimates(session: TuningSession,
             cumulative_distance += length
 
         elif elem_type in ("lens", "mirror", "crl", "zone_plate"):
-            focal_length = _get_focal_length(elem)
+            fx, fy = _get_focal_lengths_xy(elem)
 
-            if focal_length is not None and focal_length != 0:
-                # ABCD matrix for thin lens: [[1, 0], [-1/f, 1]]
-                q_x = q_x / (1 - q_x / focal_length)
-                q_y = q_y / (1 - q_y / focal_length)
+            if fx is not None and fx != 0 and abs(fx) < 1e20:
+                q_x = q_x / (1 - q_x / fx)
+            if fy is not None and fy != 0 and abs(fy) < 1e20:
+                q_y = q_y / (1 - q_y / fy)
 
         # Skip apertures — they don't change beam parameters in Gaussian model
 
@@ -119,6 +119,43 @@ def _get_focal_length(elem: dict) -> float | None:
             return single_f / n
 
     return None
+
+
+def _get_focal_lengths_xy(elem: dict) -> tuple[float | None, float | None]:
+    """Extract per-axis focal lengths (fx, fy) from an element definition.
+
+    For cylindrical mirrors, only one axis is focused. For all other
+    focusing elements, fx == fy.
+    """
+    elem_type = elem.get("type", "").lower()
+
+    if elem_type == "mirror":
+        subtype = elem.get("subtype", "").lower()
+        focal_length = elem.get("focal_length_m")
+        if focal_length is None:
+            return None, None
+
+        if subtype == "cylindrical":
+            focusing_plane = elem.get("focusing_plane", "tangential").lower()
+            orientation = elem.get("orientation", "vertical").lower()
+            # Vertical-deflecting mirror focusing tangentially → focuses y
+            if (orientation == "vertical" and focusing_plane == "tangential") or \
+               (orientation == "horizontal" and focusing_plane == "sagittal"):
+                return None, focal_length
+            else:
+                return focal_length, None
+
+        # Elliptical or unspecified curved mirror: focuses both planes
+        return focal_length, focal_length
+
+    elif elem_type == "lens":
+        fx = elem.get("fx", elem.get("focal_length_m"))
+        fy = elem.get("fy", fx)
+        return fx, fy
+
+    # CRL, zone_plate, etc. — symmetric
+    f = _get_focal_length(elem)
+    return f, f
 
 
 def _compute_element_estimate(

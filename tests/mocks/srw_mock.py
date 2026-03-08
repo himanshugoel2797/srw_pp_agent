@@ -95,6 +95,18 @@ SAMPLE_BEAMLINE = {
         },
         {"type": "drift", "length_m": 5.0, "label": "D2"},
         {
+            "type": "mirror",
+            "subtype": "cylindrical",
+            "orientation": "horizontal",
+            "focusing_plane": "tangential",
+            "grazing_angle_mrad": 3.0,
+            "tangential_size_m": 0.3,
+            "sagittal_size_m": 0.02,
+            "focal_length_m": 3.0,
+            "label": "M2_cyl",
+        },
+        {"type": "drift", "length_m": 2.0, "label": "D2b"},
+        {
             "type": "lens",
             "focal_length_m": 2.0,
             "label": "L1",
