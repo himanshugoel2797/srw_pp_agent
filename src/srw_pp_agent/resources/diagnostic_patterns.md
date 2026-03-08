@@ -80,9 +80,17 @@ to give each estimate:
   should state this and rely more on convergence tests and idealization
   tests for validation.
 
-- Flux conservation is a strong independent check. If flux is conserved
-  but FWHM disagrees with estimate, the simulation is likely correct and
-  the estimate is the problem.
+- Flux conservation is a necessary but not sufficient condition for
+  correctness. If flux is NOT conserved, the simulation has a problem
+  (usually the mesh is too small). But if flux IS conserved, the
+  simulation may still be wrong — good flux only means the mesh captured
+  all the light, not that the phase was sampled correctly. When the FWHM
+  disagrees with the analytical estimate despite good flux conservation,
+  the agent must still explain WHY: is the estimate unreliable (e.g.
+  non-Gaussian beam, Fresnel number ~1, heavy clipping)? Is the
+  propagator mode inappropriate? Is the resolution too low to resolve
+  the phase correctly? Simply noting "flux is conserved" is not enough
+  to close the diagnostic.
 
 - Always check edge_intensity_ratio before diagnosing any other issue.
   If the beam is hitting the mesh boundary, nothing else is trustworthy.

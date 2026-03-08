@@ -15,21 +15,6 @@
 4. **Propagating TO a waist/focus:**
    Use mode 4. Optimized for far-field→waist transition.
 
-**CRITICAL — Modes 3 and 4 invert range/resolution meaning:**
-
-Modes 0/1/2 use 2 FFTs, so range controls window size and resolution
-controls point density, as you'd expect.
-
-Modes 3/4 use only 1 FFT. Because a single Fourier transform swaps
-spatial and frequency domains, the meaning of the resize parameters
-is inverted:
-- To increase output **window size** → increase the **resolution** param
-- To increase output **point density** → increase the **range** param
-
-This is the most common source of "I changed range but nothing improved"
-errors when using modes 3/4. Always double-check which mode is active
-before adjusting range or resolution.
-
 ## Range and Resolution Heuristics
 
 - **Range factor:** The observation window should be ≥3× the expected beam
