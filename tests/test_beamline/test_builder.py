@@ -11,8 +11,10 @@ class TestRebuildWorkingBeamline:
             "source": {"type": "gaussian", "energy_eV": 12000},
             "elements": [
                 {"type": "drift", "length_m": 10.0, "label": "D1"},
-                {"type": "mirror", "focal_length_m": 5.0, "label": "M1",
-                 "grazing_angle_mrad": 3.0, "tangential_size_m": 0.4, "sagittal_size_m": 0.02},
+                {"type": "mirror", "subtype": "elliptical", "label": "M1",
+                 "object_distance_m": 10.0, "image_distance_m": 5.0,
+                 "grazing_angle_mrad": 3.0, "tangential_size_m": 0.4, "sagittal_size_m": 0.02,
+                 "orientation": "vertical", "focusing_plane": "tangential"},
                 {"type": "drift", "length_m": 5.0, "label": "D2"},
             ],
         }

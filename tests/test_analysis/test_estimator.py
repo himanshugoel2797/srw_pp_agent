@@ -127,14 +127,16 @@ class TestAnalyticalEstimator:
         assert result["estimates"][0]["fresnel_number"] > 0
 
     def test_mirror_element_estimates(self):
-        """Test estimates with a mirror element."""
+        """Test estimates with an elliptical mirror element."""
+        # Elliptical mirror with p=20, q=5 → f = 20*5/(20+5) = 4.0
         beamline = {
             "source": {"type": "gaussian", "energy_eV": 12000, "waist_x_m": 50e-6, "waist_y_m": 50e-6},
             "elements": [
                 {"type": "drift", "length_m": 20.0, "label": "D1"},
-                {"type": "mirror", "focal_length_m": 5.0, "label": "M1",
+                {"type": "mirror", "subtype": "elliptical", "label": "M1",
+                 "object_distance_m": 20.0, "image_distance_m": 5.0,
                  "grazing_angle_mrad": 3.0, "tangential_size_m": 0.4, "sagittal_size_m": 0.02,
-                 "orientation": "vertical"},
+                 "orientation": "vertical", "focusing_plane": "tangential"},
             ],
         }
         session = _make_session_with_beamline(beamline)
@@ -142,6 +144,6 @@ class TestAnalyticalEstimator:
 
         mirror_est = result["estimates"][1]
         assert mirror_est["element_label"] == "M1"
-        assert mirror_est["focal_length_m"] == 5.0
+        assert abs(mirror_est["focal_length_m"] - 4.0) < 0.01  # f = p*q/(p+q) = 4.0
         assert mirror_est["element_na_x_mrad"] > 0 or mirror_est["element_na_y_mrad"] > 0
         assert mirror_est["diffraction_limit_x_um"] > 0 or mirror_est["diffraction_limit_y_um"] > 0

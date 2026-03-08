@@ -45,17 +45,41 @@ simplified JSON format. This document describes the schema.
 {
   "type": "undulator",
   "energy_eV": 12000,
+  "electron_energy_GeV": 6.0,
+  "beam_current_A": 0.2,
+  "undulator_period_m": 0.021,
   "num_periods": 72,
-  "undulator_period_m": 0.021
+  "K_vertical": 1.5,
+  "sampling_factor": 1.0
 }
 ```
 
-| Field               | Type  | Default | Description                   |
-|---------------------|-------|---------|-------------------------------|
-| `type`              | str   |         | `"undulator"`                 |
-| `energy_eV`         | float | 12000   | Photon energy in eV.          |
-| `num_periods`       | int   | 72      | Number of undulator periods.  |
-| `undulator_period_m`| float | 0.021   | Undulator period in meters.   |
+| Field                | Type  | Default | Description                                |
+|----------------------|-------|---------|--------------------------------------------|
+| `type`               | str   |         | `"undulator"`                              |
+| `energy_eV`          | float | 12000   | Photon energy in eV.                       |
+| `electron_energy_GeV`| float | 6.0     | Electron beam energy in GeV.               |
+| `beam_current_A`     | float | 0.2     | Electron beam current in Amperes.          |
+| `undulator_period_m` | float | 0.021   | Undulator period in meters.                |
+| `num_periods`        | int   | 72      | Number of undulator periods.               |
+| `K_vertical`         | float | 1.5     | Vertical deflection parameter.             |
+| `sampling_factor`    | float | 1.0     | Mesh sampling density (higher = finer).    |
+
+### Bending Magnet Source
+
+```json
+{
+  "type": "bending_magnet",
+  "energy_eV": 12000,
+  "magnetic_field_T": 0.85
+}
+```
+
+| Field             | Type  | Default | Description                         |
+|-------------------|-------|---------|-------------------------------------|
+| `type`            | str   |         | `"bending_magnet"`                  |
+| `energy_eV`       | float | 12000   | Photon energy in eV.                |
+| `magnetic_field_T` | float | 0.85   | Magnetic field strength in Tesla.   |
 
 ---
 
@@ -126,7 +150,8 @@ Beam-limiting aperture.
 ### Mirror
 
 Grazing-incidence mirror. Three subtypes are supported: **flat**,
-**elliptical**, and **cylindrical**.
+**elliptical**, and **cylindrical**. Both elliptical and cylindrical mirrors
+focus in **one plane only** (the tangential plane).
 
 #### Flat Mirror
 
@@ -144,13 +169,13 @@ No focusing. Used for beam deflection or as a thermal/harmonic filter.
 }
 ```
 
-A mirror without `focal_length_m` is automatically treated as flat even if
-`subtype` is omitted.
+A mirror without `object_distance_m`/`image_distance_m` or
+`radius_of_curvature_m` is automatically treated as flat.
 
 #### Elliptical Mirror
 
-Focuses in both the tangential and sagittal planes. This is the default
-subtype when `focal_length_m` is present.
+Focuses in the **tangential plane only**. Defined by the object distance (p)
+and image distance (q). The effective focal length is `f = p*q / (p+q)`.
 
 ```json
 {
@@ -158,10 +183,10 @@ subtype when `focal_length_m` is present.
   "label": "M2_ell",
   "subtype": "elliptical",
   "orientation": "vertical",
+  "focusing_plane": "tangential",
   "grazing_angle_mrad": 3.0,
   "tangential_size_m": 0.4,
   "sagittal_size_m": 0.02,
-  "focal_length_m": 5.0,
   "object_distance_m": 30.0,
   "image_distance_m": 5.0
 }
@@ -169,8 +194,8 @@ subtype when `focal_length_m` is present.
 
 #### Cylindrical Mirror
 
-Focuses in **one plane only**. The `focusing_plane` field specifies which
-direction is curved.
+Focuses in **one plane only**. Defined by its radius of curvature. The
+effective focal length is `f = R * sin(theta) / 2`.
 
 ```json
 {
@@ -182,29 +207,45 @@ direction is curved.
   "grazing_angle_mrad": 3.0,
   "tangential_size_m": 0.3,
   "sagittal_size_m": 0.02,
-  "focal_length_m": 3.0,
-  "object_distance_m": 25.0,
-  "image_distance_m": 3.0
+  "radius_of_curvature_m": 1000.0
 }
 ```
 
 #### Common Mirror Parameters
 
-| Field               | Type  | Default      | Description                                                |
-|---------------------|-------|--------------|------------------------------------------------------------|
-| `subtype`           | str   | auto         | `"flat"`, `"elliptical"`, or `"cylindrical"`. Auto-detected from `focal_length_m` if omitted. |
-| `orientation`       | str   | `"vertical"` | `"vertical"` or `"horizontal"` — deflection plane.        |
-| `grazing_angle_mrad`| float | 3.0          | Grazing angle in milliradians.                             |
-| `tangential_size_m` | float | 0.4          | Mirror length along the beam direction.                    |
-| `sagittal_size_m`   | float | 0.02         | Mirror width perpendicular to the beam.                    |
-| `focal_length_m`    | float | None         | Effective focal length (required for elliptical/cylindrical). |
-| `object_distance_m` | float | 1e23         | Source-to-mirror distance for curved mirrors.              |
-| `image_distance_m`  | float | `focal_length_m` | Mirror-to-focus distance for curved mirrors.           |
-| `focusing_plane`    | str   | `"tangential"` | For cylindrical only: `"tangential"` or `"sagittal"`.    |
+| Field                  | Type  | Default        | Description                                                |
+|------------------------|-------|----------------|------------------------------------------------------------|
+| `subtype`              | str   | auto           | `"flat"`, `"elliptical"`, or `"cylindrical"`. Auto-detected from parameters if omitted. |
+| `orientation`          | str   | `"vertical"`   | `"vertical"` or `"horizontal"` — deflection plane.        |
+| `focusing_plane`       | str   | `"tangential"` | `"tangential"` or `"sagittal"` — which plane is curved.   |
+| `grazing_angle_mrad`   | float | 3.0            | Grazing angle in milliradians.                             |
+| `tangential_size_m`    | float | 0.4            | Mirror length along the beam direction.                    |
+| `sagittal_size_m`      | float | 0.02           | Mirror width perpendicular to the beam.                    |
 
-**Cylindrical vs elliptical:** A Kirkpatrick-Baez (KB) system typically uses
-two cylindrical mirrors at right angles, each focusing one axis. A single
-elliptical mirror focuses both axes simultaneously.
+#### Elliptical-Specific Parameters
+
+| Field               | Type  | Default | Description                             |
+|---------------------|-------|---------|-----------------------------------------|
+| `object_distance_m` | float |         | Source-to-mirror distance (p).          |
+| `image_distance_m`  | float |         | Mirror-to-focus distance (q).           |
+
+#### Cylindrical-Specific Parameters
+
+| Field                  | Type  | Default | Description                          |
+|------------------------|-------|---------|--------------------------------------|
+| `radius_of_curvature_m`| float |        | Radius of curvature (R) in meters.   |
+
+**Subtype auto-detection:** If `subtype` is omitted, the server infers it
+from the parameters present:
+- `object_distance_m` or `image_distance_m` present → `"elliptical"`
+- `radius_of_curvature_m` present → `"cylindrical"`
+- Neither → `"flat"`
+
+**Cylindrical vs elliptical:** Both focus in one plane only. A
+Kirkpatrick-Baez (KB) system uses two mirrors (typically elliptical) at right
+angles, each focusing one axis. A cylindrical mirror is defined by its
+radius of curvature, while an elliptical mirror is defined by its conjugate
+distances (p and q).
 
 ### Compound Refractive Lens (CRL)
 
@@ -248,15 +289,20 @@ elliptical mirror focuses both axes simultaneously.
 
 ## Complete Example
 
-A KB microscopy beamline with an undulator source:
+A KB microscopy beamline with an undulator source, using two elliptical
+mirrors for vertical and horizontal focusing:
 
 ```json
 {
   "source": {
     "type": "undulator",
     "energy_eV": 12000,
+    "electron_energy_GeV": 6.0,
+    "beam_current_A": 0.2,
+    "undulator_period_m": 0.021,
     "num_periods": 72,
-    "undulator_period_m": 0.021
+    "K_vertical": 1.5,
+    "sampling_factor": 1.0
   },
   "elements": [
     {"type": "drift", "length_m": 28.0, "label": "D1"},
@@ -272,13 +318,12 @@ A KB microscopy beamline with an undulator source:
     {"type": "drift", "length_m": 7.0, "label": "D2"},
     {
       "type": "mirror",
-      "subtype": "cylindrical",
+      "subtype": "elliptical",
       "orientation": "vertical",
       "focusing_plane": "tangential",
       "grazing_angle_mrad": 3.0,
       "tangential_size_m": 0.3,
       "sagittal_size_m": 0.02,
-      "focal_length_m": 2.5,
       "object_distance_m": 35.0,
       "image_distance_m": 2.5,
       "label": "M2_KB_V"
@@ -286,13 +331,12 @@ A KB microscopy beamline with an undulator source:
     {"type": "drift", "length_m": 1.0, "label": "D3"},
     {
       "type": "mirror",
-      "subtype": "cylindrical",
+      "subtype": "elliptical",
       "orientation": "horizontal",
       "focusing_plane": "tangential",
       "grazing_angle_mrad": 3.0,
       "tangential_size_m": 0.2,
       "sagittal_size_m": 0.02,
-      "focal_length_m": 2.0,
       "object_distance_m": 36.0,
       "image_distance_m": 2.0,
       "label": "M3_KB_H"

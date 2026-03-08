@@ -36,6 +36,9 @@ DEFAULT_SOURCE_MESH = {
 
 def create_undulator_source(energy_eV: float, undulator_period_m: float,
                             num_periods: int, K_vertical: float,
+                            electron_energy_GeV: float = 6.0,
+                            beam_current_A: float = 0.2,
+                            sampling_factor: float = 1.0,
                             mesh_params: dict | None = None) -> Any:
     """Create a single-electron undulator source wavefront.
 
@@ -44,6 +47,9 @@ def create_undulator_source(energy_eV: float, undulator_period_m: float,
         undulator_period_m: Undulator period in meters
         num_periods: Number of undulator periods
         K_vertical: Vertical deflection parameter
+        electron_energy_GeV: Electron beam energy in GeV
+        beam_current_A: Electron beam current in Amperes
+        sampling_factor: Controls mesh density (higher = finer sampling)
         mesh_params: Optional mesh override {nx, ny, range_x_m, range_y_m}
 
     Returns:
@@ -59,15 +65,15 @@ def create_undulator_source(energy_eV: float, undulator_period_m: float,
         [0], [0], [0],  # center position
     )
 
-    # Electron beam (ESRF-like defaults)
+    # Electron beam
     electron_beam = SRWLPartBeam()
-    electron_beam.Iavg = 0.2  # 200 mA
+    electron_beam.Iavg = beam_current_A
     electron_beam.partStatMom1.x = 0.0
     electron_beam.partStatMom1.y = 0.0
     electron_beam.partStatMom1.z = -(undulator_period_m * num_periods / 2)
     electron_beam.partStatMom1.xp = 0.0
     electron_beam.partStatMom1.yp = 0.0
-    electron_beam.partStatMom1.gamma = energy_eV / 0.51099895e6 * 2  # approximate
+    electron_beam.partStatMom1.gamma = electron_energy_GeV * 1e9 / 0.51099895e6
 
     # Wavefront mesh
     wfr = SRWLWfr()
@@ -82,7 +88,8 @@ def create_undulator_source(energy_eV: float, undulator_period_m: float,
     wfr.partBeam = electron_beam
 
     # Calculate SR
-    srwl_main.CalcElecFieldSR(wfr, 0, mag_field, [1, 0.01, 0, 0, 50000, 1, 0])
+    # Precision parameters: [1=method, step, relPrec, zStartInteg, zEndInteg, nPtInteg, useTermin, sampFact]
+    srwl_main.CalcElecFieldSR(wfr, 0, mag_field, [1, 0.01, 0, 0, 50000, 1, sampling_factor])
 
     return wfr
 
@@ -167,7 +174,7 @@ def detect_source_type(source_def: dict) -> str:
     if src_type in ("undulator", "bending_magnet", "gaussian"):
         return src_type
     # Try to infer from keys
-    if "undulator_period_m" in source_def or "K_vertical" in source_def:
+    if "undulator_period_m" in source_def or "K_vertical" in source_def or "electron_energy_GeV" in source_def:
         return "undulator"
     if "waist_x_m" in source_def or "waist_y_m" in source_def:
         return "gaussian"
@@ -186,6 +193,9 @@ def create_source_wavefront(source_def: dict, mesh_params: dict | None = None) -
             undulator_period_m=source_def.get("undulator_period_m", 0.021),
             num_periods=source_def.get("num_periods", 72),
             K_vertical=source_def.get("K_vertical", 1.5),
+            electron_energy_GeV=source_def.get("electron_energy_GeV", 6.0),
+            beam_current_A=source_def.get("beam_current_A", 0.2),
+            sampling_factor=source_def.get("sampling_factor", 1.0),
             mesh_params=mesh_params,
         )
     elif src_type == "gaussian":

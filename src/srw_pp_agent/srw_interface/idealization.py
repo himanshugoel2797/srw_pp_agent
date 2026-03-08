@@ -35,11 +35,15 @@ def idealize_element(element_def: dict) -> list[dict]:
 
 
 def compute_ideal_focal_length(element_def: dict) -> float | None:
-    """Compute the focal length for idealization of a focusing element."""
+    """Compute the focal length for idealization of a focusing element.
+
+    For elliptical mirrors: f = p*q / (p+q)  (from conjugate relation).
+    For cylindrical mirrors: f = R * sin(theta) / 2  (tangential focusing).
+    """
     elem_type = element_def.get("type", "").lower()
 
     if elem_type == "mirror":
-        return element_def.get("focal_length_m")
+        return _compute_mirror_focal_length(element_def)
     elif elem_type == "crl":
         effective_f = element_def.get("focal_length_m")
         if effective_f is None:
@@ -88,21 +92,58 @@ def get_idealization_info(element_def: dict) -> dict:
     if element_def.get("type", "").lower() == "mirror":
         subtype = element_def.get("subtype", "")
         if not subtype:
-            subtype = "elliptical" if focal_length is not None else "flat"
+            if "object_distance_m" in element_def or "image_distance_m" in element_def:
+                subtype = "elliptical"
+            elif "radius_of_curvature_m" in element_def:
+                subtype = "cylindrical"
+            else:
+                subtype = "flat"
         info["mirror_subtype"] = subtype
-        if subtype == "cylindrical":
-            info["focusing_plane"] = element_def.get("focusing_plane", "tangential")
+        info["focusing_plane"] = element_def.get("focusing_plane", "tangential")
 
     return info
 
 
-def _idealize_mirror(element_def: dict) -> list[dict]:
-    """Mirror → thin lens + rectangular aperture (projected at grazing angle).
+def _compute_mirror_focal_length(element_def: dict) -> float | None:
+    """Compute effective focal length for a curved mirror.
 
-    For cylindrical mirrors the thin lens focuses in one plane only
-    (fx or fy is set to 1e23 for the non-focusing plane).
+    Elliptical: f = p*q / (p+q) from the conjugate relation.
+    Cylindrical: f = R * sin(theta) / 2 for tangential focusing.
+    Flat mirrors have no focal length.
     """
-    focal_length = element_def.get("focal_length_m")
+    subtype = element_def.get("subtype", "").lower()
+    if not subtype:
+        if "object_distance_m" in element_def or "image_distance_m" in element_def:
+            subtype = "elliptical"
+        elif "radius_of_curvature_m" in element_def:
+            subtype = "cylindrical"
+        else:
+            return None  # flat
+
+    if subtype == "elliptical":
+        p = element_def.get("object_distance_m")
+        q = element_def.get("image_distance_m")
+        if p is not None and q is not None and (p + q) > 0:
+            return p * q / (p + q)
+        return element_def.get("focal_length_m")
+
+    if subtype == "cylindrical":
+        R = element_def.get("radius_of_curvature_m")
+        if R is not None:
+            theta = element_def.get("grazing_angle_mrad", 3.0) * 1e-3
+            return R * math.sin(theta) / 2
+        return element_def.get("focal_length_m")
+
+    return None
+
+
+def _idealize_mirror(element_def: dict) -> list[dict]:
+    """Mirror → thin lens (1D) + rectangular aperture (projected at grazing angle).
+
+    Both elliptical and cylindrical mirrors focus in one plane only.
+    The thin lens has fx or fy set to 1e23 for the non-focusing plane.
+    """
+    focal_length = _compute_mirror_focal_length(element_def)
     if focal_length is None:
         # Flat mirror — replace with just an aperture
         aperture = _mirror_aperture(element_def)
@@ -116,30 +157,27 @@ def _idealize_mirror(element_def: dict) -> list[dict]:
     aperture["type"] = "aperture"
     aperture["label"] = f"{label}_aperture"
 
-    subtype = element_def.get("subtype", "elliptical").lower()
-    if subtype == "cylindrical":
-        focusing_plane = element_def.get("focusing_plane", "tangential").lower()
-        orientation = element_def.get("orientation", "vertical").lower()
-        # Determine which optical axis (x or y) the mirror focuses in
-        # A vertical-deflecting cylindrical mirror focusing tangentially
-        # focuses the vertical (y) direction
-        if (orientation == "vertical" and focusing_plane == "tangential") or \
-           (orientation == "horizontal" and focusing_plane == "sagittal"):
-            fx, fy = 1e23, focal_length
-        else:
-            fx, fy = focal_length, 1e23
-        lens = {
-            "type": "lens",
-            "fx": fx,
-            "fy": fy,
-            "label": label,
-        }
+    # Both elliptical and cylindrical mirrors focus in one plane only.
+    # Determine which optical axis (x or y) the mirror focuses based on
+    # orientation and focusing plane.
+    focusing_plane = element_def.get("focusing_plane", "tangential").lower()
+    orientation = element_def.get("orientation", "vertical").lower()
+
+    # A vertical-deflecting mirror focusing tangentially focuses the
+    # vertical (y) direction; a horizontal-deflecting mirror focusing
+    # tangentially focuses the horizontal (x) direction.
+    if (orientation == "vertical" and focusing_plane == "tangential") or \
+       (orientation == "horizontal" and focusing_plane == "sagittal"):
+        fx, fy = 1e23, focal_length
     else:
-        lens = {
-            "type": "lens",
-            "focal_length_m": focal_length,
-            "label": label,
-        }
+        fx, fy = focal_length, 1e23
+
+    lens = {
+        "type": "lens",
+        "fx": fx,
+        "fy": fy,
+        "label": label,
+    }
 
     return [aperture, lens]
 

@@ -174,8 +174,8 @@ validation:
 
 | Original Element           | Ideal Replacement                                  |
 |----------------------------|----------------------------------------------------|
-| Elliptical mirror          | Thin lens (same f) + rectangular aperture          |
-| Cylindrical mirror         | Thin lens (1D, same f) + rectangular aperture      |
+| Elliptical mirror          | Thin lens (1D, f=pq/(p+q)) + rectangular aperture |
+| Cylindrical mirror         | Thin lens (1D, f=Rsin(θ)/2) + rectangular aperture|
 | Flat mirror                | Rectangular aperture only                          |
 | Zone plate                 | Thin lens (same f) + circular aperture             |
 | CRL stack                  | Single thin lens (effective f) + circular aperture |

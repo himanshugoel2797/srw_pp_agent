@@ -106,13 +106,24 @@ def _get_source_waist(source: dict, wavelength: float) -> tuple[float, float]:
 
 
 def _get_focal_length(elem: dict) -> float | None:
-    """Extract focal length from an element definition."""
+    """Extract focal length from an element definition.
+
+    For elliptical mirrors: f = p*q / (p+q).
+    For cylindrical mirrors: f = R*sin(theta) / 2.
+    For CRLs: f = single_f / n_lenses.
+    """
+    elem_type = elem.get("type", "").lower()
+
+    if elem_type == "mirror":
+        from ..srw_interface.idealization import _compute_mirror_focal_length
+        return _compute_mirror_focal_length(elem)
+
     f = elem.get("focal_length_m")
     if f is not None:
         return f
 
     # For CRL: compute from n_lenses and single lens focal length
-    if elem.get("type", "").lower() == "crl":
+    if elem_type == "crl":
         single_f = elem.get("single_lens_focal_length_m")
         n = elem.get("n_lenses", 1)
         if single_f:
@@ -124,29 +135,25 @@ def _get_focal_length(elem: dict) -> float | None:
 def _get_focal_lengths_xy(elem: dict) -> tuple[float | None, float | None]:
     """Extract per-axis focal lengths (fx, fy) from an element definition.
 
-    For cylindrical mirrors, only one axis is focused. For all other
-    focusing elements, fx == fy.
+    Both elliptical and cylindrical mirrors focus in one plane only.
+    For lenses, CRLs, and zone plates, fx == fy (symmetric focusing).
     """
     elem_type = elem.get("type", "").lower()
 
     if elem_type == "mirror":
-        subtype = elem.get("subtype", "").lower()
-        focal_length = elem.get("focal_length_m")
+        focal_length = _get_focal_length(elem)
         if focal_length is None:
             return None, None
 
-        if subtype == "cylindrical":
-            focusing_plane = elem.get("focusing_plane", "tangential").lower()
-            orientation = elem.get("orientation", "vertical").lower()
-            # Vertical-deflecting mirror focusing tangentially → focuses y
-            if (orientation == "vertical" and focusing_plane == "tangential") or \
-               (orientation == "horizontal" and focusing_plane == "sagittal"):
-                return None, focal_length
-            else:
-                return focal_length, None
-
-        # Elliptical or unspecified curved mirror: focuses both planes
-        return focal_length, focal_length
+        # Both elliptical and cylindrical mirrors focus in 1D only.
+        focusing_plane = elem.get("focusing_plane", "tangential").lower()
+        orientation = elem.get("orientation", "vertical").lower()
+        # Vertical-deflecting mirror focusing tangentially → focuses y
+        if (orientation == "vertical" and focusing_plane == "tangential") or \
+           (orientation == "horizontal" and focusing_plane == "sagittal"):
+            return None, focal_length
+        else:
+            return focal_length, None
 
     elif elem_type == "lens":
         fx = elem.get("fx", elem.get("focal_length_m"))
