@@ -75,6 +75,8 @@ def run_convergence_test(
                 "fwhm_y_um": final.get("fwhm_y_um", 0),
                 "peak_intensity": final.get("peak_intensity", 0),
                 "total_flux": final.get("total_flux", 0),
+                "mesh_nx": final.get("mesh_nx", 0),
+                "mesh_ny": final.get("mesh_ny", 0),
                 "wall_time_s": run_result.get("wall_time_s", 0),
             })
 

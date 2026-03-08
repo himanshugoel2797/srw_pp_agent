@@ -196,7 +196,7 @@ The idealization is deterministic and hardcoded per element type:
 | Mirror (curved) | Thin lens (same f) + rectangular aperture (tangential × sagittal size, projected at grazing angle) |
 | Zone plate | Thin lens (same f) + circular aperture (zone plate diameter) |
 | CRL stack | Single thin lens (same effective f) + circular aperture (physical aperture of CRL) |
-| Compound / multilayer mirror | Thin lens (same f) + appropriate aperture |
+| Flat mirror | No idealization (no focusing) |
 
 ```
 Input:
@@ -365,6 +365,8 @@ Output:
         fwhm_y_um: float,
         peak_intensity: float,
         total_flux: float,
+        mesh_nx: int,                  # Final grid dimensions at this scaling
+        mesh_ny: int,
         wall_time_s: float
       }
     ]
@@ -523,6 +525,11 @@ Output:
     beamline_summary: {
       source_type: str,
       photon_energy_eV: float,
+      source_mesh: {                   # Initial source wavefront mesh
+        nx: int, ny: int,
+        range_x_mm: float, range_y_mm: float,
+        pitch_x_um: float, pitch_y_um: float
+      },
       canonical_elements: list,        # The corrected beamline definition (permanent edits applied)
       total_length_m: float,
       edits_from_original: list[str]   # Permanent corrections made via edit_beamline
@@ -536,12 +543,18 @@ Output:
         resolution_x: float, resolution_y: float
       }
     ],
+    final_mesh: {                      # Mesh size at end of latest propagation run
+      nx: int, ny: int,
+      range_x_mm: float, range_y_mm: float,
+      pitch_x_um: float, pitch_y_um: float
+    } | null,
     latest_estimates: { ... },         # Output of compute_analytical_estimates
     latest_comparison: { ... },        # Output of compare_to_estimates
     convergence_tests: [               # All convergence tests run this session
       {
         element_label: str,
-        results: [ { resolution_factor, fwhm_x_um, fwhm_y_um, wall_time_s } ]
+        results: [ { scaling_factor, fwhm_x_um, fwhm_y_um, peak_intensity,
+                      total_flux, wall_time_s } ]
       }
     ],
     idealization_tests: [              # All idealization test results
@@ -555,7 +568,20 @@ Output:
         idealized_flux: float
       }
     ],
-    simulation_history: list | None    # Full run history if include_history=True
+    simulation_history: [              # Full run history if include_history=True
+      {
+        run_id: str,
+        timestamp: str,
+        propagation_params: dict,
+        up_to_element: str | null,
+        wall_time_s: float,
+        final_fwhm_x_um: float,
+        final_fwhm_y_um: float,
+        final_flux: float,
+        final_mesh_nx: int,            # Grid dimensions of final wavefront
+        final_mesh_ny: int
+      }
+    ] | null
   }
 ```
 
@@ -1109,7 +1135,10 @@ The server accepts SRW-native beamline definitions (the nested list/dict structu
     "energy_eV": 12000,
     "undulator_period_m": 0.021,
     "num_periods": 72,
-    "K_vertical": 1.5
+    "K_vertical": 1.5,
+    "electron_energy_GeV": 6.0,
+    "beam_current_A": 0.2,
+    "sampling_factor": 1.0
   },
   "elements": [
     {
@@ -1131,6 +1160,27 @@ The server accepts SRW-native beamline definitions (the nested list/dict structu
 ```
 
 The server translates this to SRW internal structures. The original SRW format is also accepted directly for users who already have beamlines defined.
+
+**Source types:**
+- **Undulator:** Single-electron radiation via `CalcElecFieldSR`. Accepts `electron_energy_GeV` (default 6.0), `beam_current_A` (default 0.2), `sampling_factor` (default 1.0).
+- **Gaussian:** TEM00 beam via `CalcElecFieldGaussian`. Defined by `waist_x_m` and `waist_y_m`.
+- **Bending magnet:** Generic magnetic field setup. Defined by `magnetic_field_T`.
+
+Source type is auto-detected from definition keys when `type` is not specified.
+
+**Supported optical element types:**
+- **Drift:** `SRWLOptD` — free-space propagation.
+- **Lens:** `SRWLOptL` — thin lens with `fx`, `fy` (or single `focal_length_m`).
+- **Aperture:** `SRWLOptA` — circular or rectangular, defined by `size_x_m`, `size_y_m`.
+- **Mirror:** Three subtypes, auto-detected from available parameters:
+  - *Flat* (`SRWLOptMirPl`): no focusing, just reflection at grazing angle.
+  - *Elliptical* (`SRWLOptMirEl`): conjugate focusing via `object_distance_m` (p) and `image_distance_m` (q). Focal length = pq/(p+q).
+  - *Cylindrical* (`SRWLOptMirTor`): single-plane focusing via `radius_of_curvature_m` (R). Focal length = R·sin(θ)/2.
+  - All mirrors accept `grazing_angle_mrad`, `tangential_size_m`, `sagittal_size_m`, `orientation` (vertical/horizontal).
+- **CRL:** Implemented as a thin lens with effective focal length (`focal_length_m` or `single_lens_focal_length_m / n_lenses`). SRW does not have a native CRL element with full absorption modeling.
+- **Zone plate:** Implemented as a thin lens at the specified `focal_length_m`. The zone structure is not directly modeled; mesh resolution must be sufficient to represent the beam at the zone plate plane.
+
+Default source mesh: 256×256, 1mm×1mm range.
 
 ### 6.2 Wavefront Metrics Extraction
 
@@ -1217,6 +1267,18 @@ Example of what the agent would produce:
 | M1_flat | 0    | 1.5     | 1.5     | 1.0   | 1.0   |
 | ...                                                  |
 
+### Mesh Size
+
+| Stage    | nx  | ny  | Range X (mm) | Range Y (mm) | Pitch X (μm) | Pitch Y (μm) |
+|----------|-----|-----|-------------|-------------|-------------|-------------|
+| Source   | 256 | 256 | 1.0         | 1.0         | 3.91        | 3.91        |
+| Final    | 384 | 384 | 0.15        | 0.15        | 0.39        | 0.39        |
+
+The source mesh (256×256) is adequate for the undulator cone. After
+propagation with the above range/resolution rescale factors, the final
+mesh grew to 384×384 — sufficient to resolve the 18 μm focal spot with
+~46 points across the FWHM.
+
 ### Simulation vs. Analytical Estimates
 
 | Element | Sim FWHM X (μm) | Est FWHM X (μm) | Δ (%) |
@@ -1263,17 +1325,23 @@ element profiles are not introducing numerical artifacts.
 
 ### Convergence
 
-Resolution factors [1.0, 1.5, 2.0] give FWHM at sample of
-[18.9, 18.3, 18.3] μm. The result has converged at resolution
-factor 1.5. Factor 1.0 shows a 3% deviation, suggesting it is
-marginally under-resolved.
+| Scaling factor | FWHM (μm) | Final mesh | Wall time |
+|----------------|-----------|------------|-----------|
+| 1.0×           | 18.9      | 256×256    | 2.1s      |
+| 1.5×           | 18.3      | 384×384    | 4.2s      |
+| 2.0×           | 18.3      | 512×512    | 8.7s      |
+
+The result has converged at scaling factor 1.5 (384×384 mesh).
+Factor 1.0 shows a 3% deviation, suggesting it is marginally
+under-resolved. Factor 2.0 confirms convergence with no change
+in FWHM at the cost of 2× longer runtime.
 
 ### Conclusion
 
 Parameters are stable and efficient (runtime: 4.2s per run at
-resolution factor 1.5). The 21% deviation from the analytical
-estimate is physical and understood. Idealization tests and
-convergence tests both pass.
+scaling factor 1.5, 384×384 mesh). The 21% deviation from the
+analytical estimate is physical and understood. Idealization tests
+and convergence tests both pass.
 ```
 
 ---

@@ -18,9 +18,16 @@ def get_report_data(session: TuningSession, include_history: bool = False) -> di
     """
     source = session.canonical_definition.get("source", {})
 
+    # Source mesh info
+    source_mesh = {}
+    if session.source_wavefront is not None:
+        from .srw_interface.wavefront import get_mesh_info
+        source_mesh = get_mesh_info(session.source_wavefront)
+
     beamline_summary = {
         "source_type": detect_source_type(source),
         "photon_energy_eV": source.get("energy_eV", 0.0),
+        "source_mesh": source_mesh,
         "canonical_elements": format_element_list(
             session.canonical_definition.get("elements", []),
             session.propagation_params,
@@ -49,10 +56,24 @@ def get_report_data(session: TuningSession, include_history: bool = False) -> di
         except ValueError:
             latest_comparison = None
 
+    # Final mesh size from latest run
+    final_mesh = None
+    if latest_run:
+        final = latest_run.results.get("final", {})
+        final_mesh = {
+            "nx": final.get("mesh_nx"),
+            "ny": final.get("mesh_ny"),
+            "range_x_mm": final.get("mesh_range_x_mm"),
+            "range_y_mm": final.get("mesh_range_y_mm"),
+            "pitch_x_um": final.get("mesh_pitch_x_um"),
+            "pitch_y_um": final.get("mesh_pitch_y_um"),
+        }
+
     result = {
         "beamline_summary": beamline_summary,
         "corrected_definition": session.canonical_definition,
         "propagation_parameters": propagation_parameters,
+        "final_mesh": final_mesh,
         "latest_estimates": latest_estimates,
         "latest_comparison": latest_comparison,
         "convergence_tests": session.convergence_tests,
@@ -70,6 +91,8 @@ def get_report_data(session: TuningSession, include_history: bool = False) -> di
                 "final_fwhm_x_um": run.results.get("final", {}).get("fwhm_x_um"),
                 "final_fwhm_y_um": run.results.get("final", {}).get("fwhm_y_um"),
                 "final_flux": run.results.get("final", {}).get("total_flux"),
+                "final_mesh_nx": run.results.get("final", {}).get("mesh_nx"),
+                "final_mesh_ny": run.results.get("final", {}).get("mesh_ny"),
             }
             for run in session.simulation_history
         ]
