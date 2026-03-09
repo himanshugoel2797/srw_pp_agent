@@ -7,6 +7,11 @@ the result. All business logic lives in the domain modules.
 
 from __future__ import annotations
 
+# Pre-import SRW C extension before the MCP event loop starts.
+# On Windows, loading the srwlpy DLL after anyio's stdin_reader task
+# is running causes a deadlock during DLL initialization.
+from .srw_interface import source as _pre_srw  # noqa: F401
+
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -58,14 +63,14 @@ def idealization_guide() -> str:
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def load_beamline(ctx: Context, beamline_definition: dict | str) -> dict:
+async def load_beamline(ctx: Context, beamline_definition: dict | str) -> dict:
     """Parse and load a beamline definition, cache source wavefront, return structured summary.
 
     Args:
         beamline_definition: SRW beamline dict or path to JSON/Python file
     """
     from .beamline.manager import load_beamline as _load
-    return _load(_get_session(ctx), beamline_definition)
+    return await _load(_get_session(ctx), beamline_definition)
 
 
 @mcp.tool()
@@ -180,7 +185,7 @@ def set_propagation_params(ctx: Context, params: dict[str, dict]) -> dict:
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def run_propagation(ctx: Context,
+async def run_propagation(ctx: Context,
                     up_to_element: str | None = None,
                     at_element: str | None = None,
                     mesh_params: dict | None = None) -> dict:
@@ -192,11 +197,11 @@ def run_propagation(ctx: Context,
         mesh_params: Override source mesh if needed
     """
     from .simulation.runner import run_propagation as _run
-    return _run(_get_session(ctx), up_to_element, at_element, mesh_params)
+    return await _run(_get_session(ctx), up_to_element, at_element, mesh_params)
 
 
 @mcp.tool()
-def run_convergence_test(ctx: Context,
+async def run_convergence_test(ctx: Context,
                          element_label: str | None = None,
                          scaling_factors: list[float] | None = None,
                          axis: str = "both") -> dict:
@@ -210,7 +215,7 @@ def run_convergence_test(ctx: Context,
         axis: "x", "y", or "both"
     """
     from .simulation.convergence import run_convergence_test as _conv
-    return _conv(_get_session(ctx), element_label, scaling_factors, axis)
+    return await _conv(_get_session(ctx), element_label, scaling_factors, axis)
 
 
 # ---------------------------------------------------------------------------
@@ -218,7 +223,7 @@ def run_convergence_test(ctx: Context,
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def preview_intensity(ctx: Context,
+async def preview_intensity(ctx: Context,
                       element_label: str,
                       phase: str = "both") -> Image:
     """Generate a 2D intensity map with H/V cuts through peak at a beamline element.
@@ -232,7 +237,7 @@ def preview_intensity(ctx: Context,
     """
     import base64
     from .simulation.runner import run_preview as _preview
-    result = _preview(_get_session(ctx), element_label, phase)
+    result = await _preview(_get_session(ctx), element_label, phase)
     if "image_base64" not in result:
         raise ValueError(result.get("message", "Preview generation failed"))
     return Image(data=base64.b64decode(result["image_base64"]), format="png")
@@ -274,7 +279,7 @@ def compare_to_estimates(ctx: Context, run_id: str | None = None) -> dict:
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def test_hypothesis(ctx: Context, hypothesis: str,
+async def test_hypothesis(ctx: Context, hypothesis: str,
                     param_changes: dict[str, dict],
                     compare_to_run_id: str | None = None) -> dict:
     """Test a parameter change hypothesis without permanently modifying active parameters.
@@ -287,7 +292,7 @@ def test_hypothesis(ctx: Context, hypothesis: str,
         compare_to_run_id: Compare against this run (None = latest)
     """
     from .analysis.hypothesis import test_hypothesis as _test
-    return _test(_get_session(ctx), hypothesis, param_changes, compare_to_run_id)
+    return await _test(_get_session(ctx), hypothesis, param_changes, compare_to_run_id)
 
 
 # ---------------------------------------------------------------------------

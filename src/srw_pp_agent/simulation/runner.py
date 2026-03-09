@@ -7,12 +7,16 @@ Maps subprocess failures to structured SimulationError responses.
 from __future__ import annotations
 
 import math
+import os
 import pickle
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from typing import Any
+
+import anyio
 
 from ..errors import SimulationError
 from ..session import TuningSession
@@ -35,6 +39,39 @@ def estimate_memory(nx: int, ny: int) -> int:
     Each point stores complex E-field for 2 polarizations = 4 floats * 8 bytes.
     """
     return nx * ny * 4 * 8
+
+
+async def create_source_in_subprocess(
+    source_def: dict,
+    mesh_params: dict | None = None,
+    timeout_s: float = DEFAULT_TIMEOUT_S,
+) -> dict:
+    """Create a source wavefront in a subprocess to avoid blocking the MCP event loop.
+
+    Returns:
+        {"wfr": <deserialized wavefront>, "mesh_info": {...}} on success,
+        or {"error": "..."} on failure.
+    """
+    from ..srw_interface.wavefront import deserialize_wavefront
+
+    request = {
+        "command": "create_source",
+        "source_def": source_def,
+        "mesh_params": mesh_params,
+    }
+
+    result = await _run_in_subprocess(request, timeout_s)
+
+    if isinstance(result, SimulationError):
+        return {"error": result.message}
+
+    if result.get("status") != "ok":
+        return {"error": result.get("error", "Unknown error creating source")}
+
+    return {
+        "wfr": deserialize_wavefront(result["wfr_data"]),
+        "mesh_info": result["mesh_info"],
+    }
 
 
 def _build_propagation_request(
@@ -128,7 +165,7 @@ def _build_propagation_request(
     }
 
 
-def run_propagation(
+async def run_propagation(
     session: TuningSession,
     up_to_element: str | None = None,
     at_element: str | None = None,
@@ -162,7 +199,7 @@ def run_propagation(
 
     # Run in subprocess
     start_time = time.time()
-    result = _run_in_subprocess(request, timeout_s)
+    result = await _run_in_subprocess(request, timeout_s)
     wall_time = time.time() - start_time
 
     if isinstance(result, SimulationError):
@@ -217,18 +254,31 @@ def run_propagation(
     }
 
 
-def _run_in_subprocess(request: dict, timeout_s: float) -> dict | SimulationError:
-    """Launch worker subprocess and communicate via pickle."""
+def _run_in_subprocess_sync(request: dict, timeout_s: float) -> dict | SimulationError:
+    """Synchronous subprocess launch — runs in a thread to avoid blocking the event loop.
+
+    Uses temp files for IPC instead of stdin/stdout pipes to avoid the
+    Windows MCP stdio transport conflict (modelcontextprotocol/python-sdk#671):
+    child process stdin inheritance interferes with MCP's JSON-RPC transport.
+    """
+    req_fd, req_path = tempfile.mkstemp(suffix=".pkl", prefix="srw_req_")
+    resp_fd, resp_path = tempfile.mkstemp(suffix=".pkl", prefix="srw_resp_")
     try:
+        # Write request to temp file
+        with os.fdopen(req_fd, "wb") as f:
+            pickle.dump(request, f)
+        req_fd = -1  # mark as closed
+        os.close(resp_fd)
+        resp_fd = -1
+
         proc = subprocess.Popen(
-            [sys.executable, "-m", "srw_pp_agent.simulation.worker"],
-            stdin=subprocess.PIPE,
+            [sys.executable, "-m", "srw_pp_agent.simulation.worker",
+             "--request", req_path, "--response", resp_path],
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-
-        request_data = pickle.dumps(request)
-        stdout_data, stderr_data = proc.communicate(input=request_data, timeout=timeout_s)
+        _, stderr_data = proc.communicate(timeout=timeout_s)
 
         if proc.returncode < 0:
             sig = -proc.returncode
@@ -244,7 +294,8 @@ def _run_in_subprocess(request: dict, timeout_s: float) -> dict | SimulationErro
                 message=f"Worker exited with code {proc.returncode}: {stderr_data.decode(errors='replace')[:500]}",
             )
 
-        return pickle.loads(stdout_data)
+        with open(resp_path, "rb") as f:
+            return pickle.load(f)
 
     except subprocess.TimeoutExpired:
         proc.kill()
@@ -258,9 +309,26 @@ def _run_in_subprocess(request: dict, timeout_s: float) -> dict | SimulationErro
             error_type="srw_error",
             message=f"Subprocess error: {e}",
         )
+    finally:
+        if req_fd >= 0:
+            os.close(req_fd)
+        if resp_fd >= 0:
+            os.close(resp_fd)
+        for p in (req_path, resp_path):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
 
 
-def run_preview(
+async def _run_in_subprocess(request: dict, timeout_s: float) -> dict | SimulationError:
+    """Launch worker subprocess in a thread so it doesn't block the MCP event loop."""
+    return await anyio.to_thread.run_sync(
+        lambda: _run_in_subprocess_sync(request, timeout_s)
+    )
+
+
+async def run_preview(
     session: TuningSession,
     element_label: str,
     phase: str = "both",
@@ -292,7 +360,7 @@ def run_preview(
     }
 
     start_time = time.time()
-    result = _run_in_subprocess(request, timeout_s)
+    result = await _run_in_subprocess(request, timeout_s)
     wall_time = time.time() - start_time
 
     if isinstance(result, SimulationError):

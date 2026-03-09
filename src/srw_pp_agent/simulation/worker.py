@@ -1,15 +1,21 @@
 """Subprocess entry point for SRW propagation.
 
 This runs in a separate process to isolate the MCP server from SRW crashes,
-memory leaks, and hangs. Communicates via pickle over stdin/stdout.
+memory leaks, and hangs. Communicates via pickle over temp files (or
+stdin/stdout as fallback).
 
-Protocol:
-  stdin  <- pickle({command, wfr_data, elements_data, prop_params, labels, ...})
-  stdout -> pickle({status, results, intermediates, error})
+Protocol (file-based, used when --request/--response are provided):
+  request file  <- pickle({command, wfr_data, elements_data, prop_params, labels, ...})
+  response file -> pickle({status, results, intermediates, error})
+
+Protocol (legacy stdin/stdout):
+  stdin  <- pickle({command, ...})
+  stdout -> pickle({status, ...})
 """
 
 from __future__ import annotations
 
+import argparse
 import pickle
 import sys
 import math
@@ -20,21 +26,39 @@ import numpy as np
 
 def run_worker():
     """Main entry point for the worker subprocess."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--request", default=None, help="Path to pickled request file")
+    parser.add_argument("--response", default=None, help="Path to write pickled response")
+    args = parser.parse_args()
+
+    use_files = args.request is not None and args.response is not None
+
     try:
-        # Read request from stdin
-        request = pickle.loads(sys.stdin.buffer.read())
+        # Read request
+        if use_files:
+            with open(args.request, "rb") as f:
+                request = pickle.load(f)
+        else:
+            request = pickle.loads(sys.stdin.buffer.read())
+
         command = request.get("command", "propagate")
 
         if command == "propagate":
             result = _do_propagation(request)
         elif command == "preview":
             result = _do_preview(request)
+        elif command == "create_source":
+            result = _do_create_source(request)
         else:
             result = {"status": "error", "error": f"Unknown command: {command}"}
 
-        # Write result to stdout
-        sys.stdout.buffer.write(pickle.dumps(result))
-        sys.stdout.buffer.flush()
+        # Write result
+        if use_files:
+            with open(args.response, "wb") as f:
+                pickle.dump(result, f)
+        else:
+            sys.stdout.buffer.write(pickle.dumps(result))
+            sys.stdout.buffer.flush()
 
     except Exception as e:
         error_result = {
@@ -43,8 +67,12 @@ def run_worker():
             "traceback": traceback.format_exc(),
         }
         try:
-            sys.stdout.buffer.write(pickle.dumps(error_result))
-            sys.stdout.buffer.flush()
+            if use_files:
+                with open(args.response, "wb") as f:
+                    pickle.dump(error_result, f)
+            else:
+                sys.stdout.buffer.write(pickle.dumps(error_result))
+                sys.stdout.buffer.flush()
         except Exception:
             pass
         sys.exit(1)
@@ -138,6 +166,24 @@ def _do_preview(request: dict) -> dict:
         "status": "ok",
         "snapshots": snapshots,
         "element_label": target_label,
+    }
+
+
+def _do_create_source(request: dict) -> dict:
+    """Create a source wavefront in an isolated subprocess."""
+    from ..srw_interface.source import create_source_wavefront
+    from ..srw_interface.wavefront import serialize_wavefront, get_mesh_info
+
+    source_def = request["source_def"]
+    mesh_params = request.get("mesh_params")
+
+    wfr = create_source_wavefront(source_def, mesh_params)
+    mesh_info = get_mesh_info(wfr)
+
+    return {
+        "status": "ok",
+        "wfr_data": serialize_wavefront(wfr),
+        "mesh_info": mesh_info,
     }
 
 

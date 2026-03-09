@@ -12,7 +12,7 @@ from ..session import TuningSession
 from .runner import run_propagation
 
 
-def run_convergence_test(
+async def run_convergence_test(
     session: TuningSession,
     element_label: str | None = None,
     scaling_factors: list[float] | None = None,
@@ -60,7 +60,7 @@ def run_convergence_test(
         _apply_scaling(session, factor, parameter_scaled, axis, test_label)
 
         # Run propagation
-        run_result = run_propagation(session, up_to_element=element_label)
+        run_result = await run_propagation(session, up_to_element=element_label)
 
         if "error" in run_result:
             results.append({

@@ -10,7 +10,7 @@ from ..session import TuningSession
 from ..simulation.runner import run_propagation
 
 
-def test_hypothesis(
+async def test_hypothesis(
     session: TuningSession,
     hypothesis: str,
     param_changes: dict[str, dict],
@@ -51,7 +51,7 @@ def test_hypothesis(
             }
 
     # Run propagation with modified params
-    test_result = run_propagation(session)
+    test_result = await run_propagation(session)
 
     # Restore original params immediately
     session.propagation_params = original_params

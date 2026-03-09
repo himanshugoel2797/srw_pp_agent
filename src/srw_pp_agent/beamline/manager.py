@@ -11,7 +11,7 @@ import uuid
 
 from ..session import TuningSession
 from ..srw_interface.idealization import get_idealization_info
-from ..srw_interface.source import create_source_wavefront, detect_source_type
+from ..srw_interface.source import detect_source_type
 from ..srw_interface.wavefront import get_mesh_info
 from .builder import rebuild_working_beamline
 from .definition import (
@@ -23,7 +23,7 @@ from .definition import (
 )
 
 
-def load_beamline(session: TuningSession, beamline_definition: dict | str) -> dict:
+async def load_beamline(session: TuningSession, beamline_definition: dict | str) -> dict:
     """Parse and load a beamline definition, cache source wavefront.
 
     Returns structured summary per DESIGN.MD §3.1 load_beamline output.
@@ -53,21 +53,21 @@ def load_beamline(session: TuningSession, beamline_definition: dict | str) -> di
             "resolution_y": 1.0,
         }
 
-    # Create source wavefront
+    # Create source wavefront in a subprocess to avoid blocking the MCP event loop
     source_def = definition.get("source", {})
-    try:
-        session.source_wavefront = create_source_wavefront(source_def)
-        source_mesh = get_mesh_info(session.source_wavefront)
-    except Exception as exc:
-        import traceback
-        traceback.print_exc()
+    from ..simulation.runner import create_source_in_subprocess
+    src_result = await create_source_in_subprocess(source_def)
+    if "error" in src_result:
         session.source_wavefront = None
-        session._source_error = str(exc)
+        session._source_error = src_result["error"]
         source_mesh = {
             "nx": 0, "ny": 0,
             "range_x_mm": 0.0, "range_y_mm": 0.0,
             "pitch_x_um": 0.0, "pitch_y_um": 0.0,
         }
+    else:
+        session.source_wavefront = src_result["wfr"]
+        source_mesh = src_result["mesh_info"]
 
     # Build working beamline
     session.working_beamline = rebuild_working_beamline(
