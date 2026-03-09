@@ -112,6 +112,10 @@ installed.
 | 3    | From-waist far-field        | 1    | Far from waist (range/res inverted) |
 | 4    | To-waist far-field          | 1    | Approaching waist (range/res inverted) |
 
+Range scales the window size while keeping the point count fixed; resolution
+scales the point count while keeping the window size fixed. Both affect the
+mesh pitch (window_size / num_points), but in opposite ways.
+
 **Modes 3 and 4 invert the meaning of range and resolution parameters.**
 
 ### Simulation

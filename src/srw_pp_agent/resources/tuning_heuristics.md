@@ -1,21 +1,59 @@
 ## Propagator Mode Selection Heuristics
 
+These are useful starting-point heuristics, not hard rules. When results
+don't converge or diagnostics look wrong, try a different mode — even if
+the heuristic says otherwise. In particular, drifts can sometimes work
+better with a different mode than the one suggested below, especially
+near transitions between regimes (e.g. ~1 Rayleigh range from waist).
+
 1. **Near a waist (within ~1 Rayleigh range):**
-   Use mode 0 (standard). The beam phase is relatively flat.
+   Mode 0 (standard) is usually a good starting point. The beam phase
+   is relatively flat.
 
 2. **Far from waist, large divergence:**
-   Use mode 1 or 2 (quadratic phase subtraction). The quadratic phase
-   varies rapidly and needs to be factored out for accurate sampling.
+   Mode 1 or 2 (quadratic phase subtraction) typically works well. The
+   quadratic phase varies rapidly and needs to be factored out for
+   accurate sampling.
    - Mode 1: allows grid resize (use when beam size changes significantly)
    - Mode 2: fixed grid (use when you need consistent mesh across elements)
 
 3. **Propagating FROM a waist into far field:**
-   Use mode 3. Optimized for the waist→far-field transition.
+   Mode 3 is often a good choice. Optimized for the waist→far-field transition.
 
 4. **Propagating TO a waist/focus:**
-   Use mode 4. Optimized for far-field→waist transition.
+   Mode 4 is often a good choice. Optimized for far-field→waist transition.
+
+**When to deviate from these heuristics:** If convergence tests show
+instability, FWHM is far from analytical estimates, or results oscillate
+with parameter changes, try neighboring modes. For example, a drift that
+is "near" a waist but showing convergence issues with mode 0 may benefit
+from mode 1 or 2. Similarly, mode 3/4 can sometimes outperform mode 0
+for drifts that are within ~1 Rayleigh range but propagating through a
+significant fraction of it.
 
 ## Range and Resolution Heuristics
+
+**How range and resolution differ:**
+
+- **Range factor** scales the observation window (spatial extent of the
+  mesh) while keeping the number of grid points the same. Increasing
+  range makes the window larger with the same point count, so each
+  pixel/point covers a larger area (coarser pitch). This adds no
+  computational cost.
+
+- **Resolution factor** changes the number of grid points while keeping
+  the window size the same. Increasing resolution adds more points within
+  the same window, making each pixel/point smaller (finer pitch). This
+  increases computational cost.
+
+**Practical consequence:** Increasing range to accommodate a larger beam
+also makes the mesh coarser (larger pitch). If the original resolution
+was more than sufficient, this may be fine — the extra room from a
+larger range can absorb a coarser pitch without affecting accuracy.
+Conversely, if the mesh was already borderline for resolving features,
+increasing range without also increasing resolution will degrade
+sampling. Always check whether the resulting mesh pitch is still
+adequate for the physics (see Element Sampling Requirements below).
 
 - **Range factor:** The observation window should be ≥3× the expected beam
   size (FWHM) to avoid clipping artifacts. If flux is being lost, increase
@@ -33,11 +71,17 @@
   and get expensive fast.
 
 - **After focusing elements:** The beam size changes dramatically.
-  Increase range factor (2-4×) to capture the full beam, then increase
-  resolution if the focal spot is under-resolved.
+  Increase range factor (2-4×) to capture the full beam. Because
+  increasing range keeps the point count fixed, the mesh pitch gets
+  coarser — check whether the focal spot is still adequately resolved.
+  If not, increase resolution as well.
 
 - **Long drifts far from focus:** The beam expands. May need larger range
   but can often decrease resolution since the phase varies more slowly.
+  This is a case where the range increase "pays for itself": the beam is
+  larger and smoother, so the coarser pitch from a bigger window is
+  perfectly acceptable, and you may even be able to drop resolution to
+  save compute.
 
 ## Element Sampling Requirements
 

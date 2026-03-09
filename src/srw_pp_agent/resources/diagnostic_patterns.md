@@ -2,12 +2,12 @@
 
 | Symptom | Likely causes to investigate |
 |---------|----------------------------|
-| FWHM well below diffraction limit | Aliasing; try higher resolution or different propagator mode |
-| FWHM much larger than estimate | Beam clipping (range too small); wrong propagator mode near focus |
-| Asymmetric deviation (x ok, y not) | Astigmatism; try different range/resolution values per axis, or switch to mode 2 with higher point count |
-| Flux loss without apertures | Range too small (beam clipped at edge of mesh) |
+| FWHM well below diffraction limit | Aliasing; try higher resolution, different propagator mode, or both |
+| FWHM much larger than estimate | Beam clipping (range too small); wrong propagator mode near focus; note that increasing range keeps point count fixed (coarser pitch), so also check resolution is still adequate |
+| Asymmetric deviation (x ok, y not) | Astigmatism; try different range/resolution values per axis, or try mode 2 with higher point count |
+| Flux loss without apertures | Range too small (beam clipped at edge of mesh); increasing range will fix clipping but makes each pixel larger — verify resolution is still sufficient after the range increase |
 | edge_intensity_ratio > 0 | Beam reaches mesh boundary; increase range before diagnosing anything else |
-| FWHM oscillates with resolution | Not converged; try higher resolution or mode 1/2 |
+| FWHM oscillates with resolution | Not converged; try higher resolution, a different propagator mode, or both |
 | Idealized element gives same result | Propagation params are likely correct for that element |
 | Idealized element gives different result | Realistic element introduces effects (e.g. slope errors, aberrations) that need more careful resolution |
 
@@ -61,13 +61,19 @@ to give each estimate:
 ### Wavefront curvature and propagator modes
 
 - **Large wavefront_roc (relative to propagation distance):** The
-  wavefront is nearly flat. Mode 0 is appropriate.
+  wavefront is nearly flat. Mode 0 is typically a good starting point,
+  but other modes may still work if convergence is better.
 
 - **Small wavefront_roc (comparable to or less than propagation
   distance):** The quadratic phase varies rapidly across the mesh.
-  Modes 1-4 are needed to factor out this curvature. The ratio
+  Modes 1-4 are generally needed to factor out this curvature. The ratio
   distance_from_waist / rayleigh_range indicates how far from flat
   the wavefront is — values >>1 mean strong curvature.
+
+- **Near regime boundaries:** When the beam is near a transition
+  (e.g. ~1 Rayleigh range from waist), multiple modes may give
+  acceptable results. If one mode shows convergence issues, try
+  others — the heuristics are guidelines, not guarantees.
 
 ### General principles
 
