@@ -1,21 +1,56 @@
 ## Propagator Mode Selection Heuristics
 
+These are useful starting-point heuristics, not hard rules. When results
+don't converge or diagnostics look wrong, try a different mode — even if
+the heuristic says otherwise. In particular, drifts can sometimes work
+better with a different mode than the one suggested below, especially
+near transitions between regimes (e.g. ~1 Rayleigh range from waist).
+
 1. **Near a waist (within ~1 Rayleigh range):**
-   Use mode 0 (standard). The beam phase is relatively flat.
+   Mode 0 (standard) is usually a good starting point. The beam phase
+   is relatively flat.
 
 2. **Far from waist, large divergence:**
-   Use mode 1 or 2 (quadratic phase subtraction). The quadratic phase
-   varies rapidly and needs to be factored out for accurate sampling.
+   Mode 1 or 2 (quadratic phase subtraction) typically works well. The
+   quadratic phase varies rapidly and needs to be factored out for
+   accurate sampling.
    - Mode 1: allows grid resize (use when beam size changes significantly)
    - Mode 2: fixed grid (use when you need consistent mesh across elements)
 
 3. **Propagating FROM a waist into far field:**
-   Use mode 3. Optimized for the waist→far-field transition.
+   Mode 3 is often a good choice. Optimized for the waist→far-field transition.
 
 4. **Propagating TO a waist/focus:**
-   Use mode 4. Optimized for far-field→waist transition.
+   Mode 4 is often a good choice. Optimized for far-field→waist transition.
+
+**When to deviate from these heuristics:** If convergence tests show
+instability, FWHM is far from analytical estimates, or results oscillate
+with parameter changes, try neighboring modes. For example, a drift that
+is "near" a waist but showing convergence issues with mode 0 may benefit
+from mode 1 or 2. Similarly, mode 3/4 can sometimes outperform mode 0
+for drifts that are within ~1 Rayleigh range but propagating through a
+significant fraction of it.
 
 ## Range and Resolution Heuristics
+
+**How range and resolution differ:**
+
+- **Range factor** scales the observation window (spatial extent of the
+  mesh) while keeping the point spacing (pitch) the same. Increasing
+  range makes the window larger by adding more grid points at the same
+  pitch. This increases computational cost.
+
+- **Resolution factor** changes the point spacing (pitch) while keeping
+  the window size the same. Increasing resolution makes each pixel/point
+  smaller (finer pitch) by adding more points within the same window.
+  This also increases computational cost.
+
+**Practical consequence:** Increasing range to accommodate a larger beam
+preserves the existing point spacing — the mesh simply gets more points
+to cover the wider window. Resolution stays the same automatically, so
+there is no trade-off between window size and sampling quality. However,
+larger meshes cost more to compute, so only increase range as much as
+needed (≥3× beam FWHM is a good target).
 
 - **Range factor:** The observation window should be ≥3× the expected beam
   size (FWHM) to avoid clipping artifacts. If flux is being lost, increase
@@ -33,11 +68,14 @@
   and get expensive fast.
 
 - **After focusing elements:** The beam size changes dramatically.
-  Increase range factor (2-4×) to capture the full beam, then increase
-  resolution if the focal spot is under-resolved.
+  Increase range factor (2-4×) to capture the full beam. Since
+  increasing range preserves point spacing, the focal spot resolution
+  is maintained — but the larger mesh will cost more to compute.
 
 - **Long drifts far from focus:** The beam expands. May need larger range
   but can often decrease resolution since the phase varies more slowly.
+  Decreasing resolution (coarser pitch) saves compute, which can offset
+  the cost of the larger range.
 
 ## Element Sampling Requirements
 

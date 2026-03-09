@@ -256,10 +256,10 @@ Input:
 
   Parameters per element (all 5 are the tunable knobs):
     mode: int               # Free-space propagator mode (0-4), applies to both axes
-    range_x: float          # Horizontal range resize factor
-    range_y: float          # Vertical range resize factor
-    resolution_x: float     # Horizontal resolution resize factor
-    resolution_y: float     # Vertical resolution resize factor
+    range_x: float          # Horizontal range resize factor (scales window size by adding points, pitch unchanged)
+    range_y: float          # Vertical range resize factor (scales window size by adding points, pitch unchanged)
+    resolution_x: float     # Horizontal resolution resize factor (scales point density, keeps window size fixed → changes pitch)
+    resolution_y: float     # Vertical resolution resize factor (scales point density, keeps window size fixed → changes pitch)
 
 Output:
   applied_params: dict[str, dict]   # Confirmed parameters per element label
