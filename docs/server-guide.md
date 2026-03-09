@@ -112,9 +112,9 @@ installed.
 | 3    | From-waist far-field        | 1    | Far from waist (range/res inverted) |
 | 4    | To-waist far-field          | 1    | Approaching waist (range/res inverted) |
 
-Range scales the window size while keeping the point count fixed; resolution
-scales the point count while keeping the window size fixed. Both affect the
-mesh pitch (window_size / num_points), but in opposite ways.
+Range scales the window size by adding points while keeping the pitch
+(point spacing) fixed. Resolution scales the point density (pitch) while
+keeping the window size fixed. Only resolution changes the mesh pitch.
 
 **Modes 3 and 4 invert the meaning of range and resolution parameters.**
 

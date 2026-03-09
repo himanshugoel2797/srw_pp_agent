@@ -3,9 +3,9 @@
 | Symptom | Likely causes to investigate |
 |---------|----------------------------|
 | FWHM well below diffraction limit | Aliasing; try higher resolution, different propagator mode, or both |
-| FWHM much larger than estimate | Beam clipping (range too small); wrong propagator mode near focus; note that increasing range keeps point count fixed (coarser pitch), so also check resolution is still adequate |
+| FWHM much larger than estimate | Beam clipping (range too small); wrong propagator mode near focus |
 | Asymmetric deviation (x ok, y not) | Astigmatism; try different range/resolution values per axis, or try mode 2 with higher point count |
-| Flux loss without apertures | Range too small (beam clipped at edge of mesh); increasing range will fix clipping but makes each pixel larger — verify resolution is still sufficient after the range increase |
+| Flux loss without apertures | Range too small (beam clipped at edge of mesh); increase range to fix clipping |
 | edge_intensity_ratio > 0 | Beam reaches mesh boundary; increase range before diagnosing anything else |
 | FWHM oscillates with resolution | Not converged; try higher resolution, a different propagator mode, or both |
 | Idealized element gives same result | Propagation params are likely correct for that element |

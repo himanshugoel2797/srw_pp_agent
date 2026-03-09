@@ -36,24 +36,21 @@ significant fraction of it.
 **How range and resolution differ:**
 
 - **Range factor** scales the observation window (spatial extent of the
-  mesh) while keeping the number of grid points the same. Increasing
-  range makes the window larger with the same point count, so each
-  pixel/point covers a larger area (coarser pitch). This adds no
-  computational cost.
+  mesh) while keeping the point spacing (pitch) the same. Increasing
+  range makes the window larger by adding more grid points at the same
+  pitch. This increases computational cost.
 
-- **Resolution factor** changes the number of grid points while keeping
-  the window size the same. Increasing resolution adds more points within
-  the same window, making each pixel/point smaller (finer pitch). This
-  increases computational cost.
+- **Resolution factor** changes the point spacing (pitch) while keeping
+  the window size the same. Increasing resolution makes each pixel/point
+  smaller (finer pitch) by adding more points within the same window.
+  This also increases computational cost.
 
 **Practical consequence:** Increasing range to accommodate a larger beam
-also makes the mesh coarser (larger pitch). If the original resolution
-was more than sufficient, this may be fine — the extra room from a
-larger range can absorb a coarser pitch without affecting accuracy.
-Conversely, if the mesh was already borderline for resolving features,
-increasing range without also increasing resolution will degrade
-sampling. Always check whether the resulting mesh pitch is still
-adequate for the physics (see Element Sampling Requirements below).
+preserves the existing point spacing — the mesh simply gets more points
+to cover the wider window. Resolution stays the same automatically, so
+there is no trade-off between window size and sampling quality. However,
+larger meshes cost more to compute, so only increase range as much as
+needed (≥3× beam FWHM is a good target).
 
 - **Range factor:** The observation window should be ≥3× the expected beam
   size (FWHM) to avoid clipping artifacts. If flux is being lost, increase
@@ -71,17 +68,14 @@ adequate for the physics (see Element Sampling Requirements below).
   and get expensive fast.
 
 - **After focusing elements:** The beam size changes dramatically.
-  Increase range factor (2-4×) to capture the full beam. Because
-  increasing range keeps the point count fixed, the mesh pitch gets
-  coarser — check whether the focal spot is still adequately resolved.
-  If not, increase resolution as well.
+  Increase range factor (2-4×) to capture the full beam. Since
+  increasing range preserves point spacing, the focal spot resolution
+  is maintained — but the larger mesh will cost more to compute.
 
 - **Long drifts far from focus:** The beam expands. May need larger range
   but can often decrease resolution since the phase varies more slowly.
-  This is a case where the range increase "pays for itself": the beam is
-  larger and smoother, so the coarser pitch from a bigger window is
-  perfectly acceptable, and you may even be able to drop resolution to
-  save compute.
+  Decreasing resolution (coarser pitch) saves compute, which can offset
+  the cost of the larger range.
 
 ## Element Sampling Requirements
 
