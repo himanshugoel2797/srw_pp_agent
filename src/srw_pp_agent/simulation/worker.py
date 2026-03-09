@@ -27,6 +27,8 @@ def run_worker():
 
         if command == "propagate":
             result = _do_propagation(request)
+        elif command == "preview":
+            result = _do_preview(request)
         else:
             result = {"status": "error", "error": f"Unknown command: {command}"}
 
@@ -100,6 +102,42 @@ def _do_propagation(request: dict) -> dict:
         "final_metrics": final_metrics,
         "intermediates": intermediates,
         "wfr_data": serialize_wavefront(wfr),
+    }
+
+
+def _do_preview(request: dict) -> dict:
+    """Propagate and capture 2D intensity snapshots at a target element."""
+    from ..srw_interface.wavefront import deserialize_wavefront
+    from ..srw_interface.propagation import propagate_element_by_element
+    from ..srw_interface.metrics import extract_intensity_2d
+
+    wfr = deserialize_wavefront(request["wfr_data"])
+    elements = request["elements"]
+    prop_params = request["prop_params"]
+    labels = request.get("labels", [])
+    target_label = request["target_label"]
+    phase = request.get("phase", "both")
+
+    snapshots = []
+
+    def callback(i, label, wfr, cb_phase):
+        if label != target_label:
+            return
+        # Capture "before" and/or "after" based on requested phase
+        if phase == "both" or phase == cb_phase:
+            intensity_2d, mesh_info = extract_intensity_2d(wfr)
+            snapshots.append({
+                "phase": cb_phase,
+                "intensity_2d": intensity_2d,
+                "mesh_info": mesh_info,
+            })
+
+    propagate_element_by_element(wfr, elements, prop_params, callback, labels)
+
+    return {
+        "status": "ok",
+        "snapshots": snapshots,
+        "element_label": target_label,
     }
 
 

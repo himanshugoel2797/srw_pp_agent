@@ -37,32 +37,21 @@ def estimate_memory(nx: int, ny: int) -> int:
     return nx * ny * 4 * 8
 
 
-def run_propagation(
+def _build_propagation_request(
     session: TuningSession,
     up_to_element: str | None = None,
-    at_element: str | None = None,
     mesh_params: dict | None = None,
-    cache: WavefrontCache | None = None,
-    timeout_s: float = DEFAULT_TIMEOUT_S,
-) -> dict:
-    """Run wavefront propagation through the beamline or a subset.
+) -> dict | SimulationError:
+    """Build common request data for propagation/preview.
 
-    Args:
-        session: Current tuning session
-        up_to_element: Stop after this element (None = full beamline)
-        at_element: Return intermediates only for this element (None = all)
-        mesh_params: Override source mesh parameters
-        cache: Optional wavefront cache
-        timeout_s: Timeout in seconds
-
-    Returns:
-        Result dict per DESIGN.MD §3.3, or SimulationError.to_dict()
+    Returns a dict with keys: wfr_data, elements, prop_params, labels,
+    or a SimulationError on failure.
     """
     if session.source_wavefront is None:
         return SimulationError(
             error_type="srw_error",
             message="No source wavefront available. Load a beamline first.",
-        ).to_dict()
+        )
 
     working_elements = session.working_beamline.get("elements", [])
 
@@ -77,7 +66,7 @@ def run_propagation(
             return SimulationError(
                 error_type="srw_error",
                 message=f"Element not found: {up_to_element}",
-            ).to_dict()
+            )
         working_elements = working_elements[:stop_idx]
 
     # Build SRW elements and propagation parameter arrays
@@ -97,7 +86,7 @@ def run_propagation(
                 error_type="srw_error",
                 message=f"Failed to build element {label}: {e}",
                 element_label=label,
-            ).to_dict()
+            )
 
         # Get propagation params for this element
         params = session.propagation_params.get(label, {
@@ -121,7 +110,7 @@ def run_propagation(
             return SimulationError(
                 error_type="memory_limit",
                 message=f"Estimated memory {mem / 1024**3:.1f} GB exceeds threshold",
-            ).to_dict()
+            )
 
     # Prepare source wavefront
     if mesh_params is not None:
@@ -129,14 +118,45 @@ def run_propagation(
     else:
         wfr = copy_wavefront(session.source_wavefront)
 
-    # Build request for worker subprocess
     wfr_data = serialize_wavefront(wfr)
-    request = {
-        "command": "propagate",
+
+    return {
         "wfr_data": wfr_data,
         "elements": srw_elements,
         "prop_params": prop_params_arrays,
         "labels": labels,
+    }
+
+
+def run_propagation(
+    session: TuningSession,
+    up_to_element: str | None = None,
+    at_element: str | None = None,
+    mesh_params: dict | None = None,
+    cache: WavefrontCache | None = None,
+    timeout_s: float = DEFAULT_TIMEOUT_S,
+) -> dict:
+    """Run wavefront propagation through the beamline or a subset.
+
+    Args:
+        session: Current tuning session
+        up_to_element: Stop after this element (None = full beamline)
+        at_element: Return intermediates only for this element (None = all)
+        mesh_params: Override source mesh parameters
+        cache: Optional wavefront cache
+        timeout_s: Timeout in seconds
+
+    Returns:
+        Result dict per DESIGN.MD §3.3, or SimulationError.to_dict()
+    """
+    req_data = _build_propagation_request(session, up_to_element, mesh_params)
+    if isinstance(req_data, SimulationError):
+        return req_data.to_dict()
+
+    # Build request for worker subprocess
+    request = {
+        "command": "propagate",
+        **req_data,
         "element_by_element": True,
     }
 
@@ -238,6 +258,71 @@ def _run_in_subprocess(request: dict, timeout_s: float) -> dict | SimulationErro
             error_type="srw_error",
             message=f"Subprocess error: {e}",
         )
+
+
+def run_preview(
+    session: TuningSession,
+    element_label: str,
+    phase: str = "both",
+    timeout_s: float = DEFAULT_TIMEOUT_S,
+) -> dict:
+    """Run propagation and return a preview image at the specified element.
+
+    Args:
+        session: Current tuning session
+        element_label: Element to capture preview at
+        phase: "before", "after", or "both"
+        timeout_s: Timeout in seconds
+
+    Returns:
+        Dict with "image_base64" (PNG) and "media_type", or error dict
+    """
+    import base64
+    from .plotting import render_preview_image
+
+    req_data = _build_propagation_request(session, up_to_element=element_label)
+    if isinstance(req_data, SimulationError):
+        return req_data.to_dict()
+
+    request = {
+        "command": "preview",
+        **req_data,
+        "target_label": element_label,
+        "phase": phase,
+    }
+
+    start_time = time.time()
+    result = _run_in_subprocess(request, timeout_s)
+    wall_time = time.time() - start_time
+
+    if isinstance(result, SimulationError):
+        result.wall_time_s = wall_time
+        return result.to_dict()
+
+    if result.get("status") != "ok":
+        return SimulationError(
+            error_type="srw_error",
+            message=result.get("error", "Preview failed"),
+            wall_time_s=wall_time,
+        ).to_dict()
+
+    snapshots = result.get("snapshots", [])
+    if not snapshots:
+        return SimulationError(
+            error_type="srw_error",
+            message=f"No snapshots captured for element '{element_label}'. Check the label.",
+            wall_time_s=wall_time,
+        ).to_dict()
+
+    png_bytes = render_preview_image(snapshots, element_label)
+
+    return {
+        "image_base64": base64.b64encode(png_bytes).decode("ascii"),
+        "media_type": "image/png",
+        "element_label": element_label,
+        "phase": phase,
+        "wall_time_s": wall_time,
+    }
 
 
 def _format_intermediates(raw: list[dict], at_element: str | None) -> list[dict]:

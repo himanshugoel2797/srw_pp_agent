@@ -6,6 +6,7 @@ requires-python = ">=3.11"
 dependencies = [
     "mcp>=1.2.0",
     "numpy",
+    "matplotlib",
 ]
 
 [project.optional-dependencies]

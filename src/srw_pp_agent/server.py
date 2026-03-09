@@ -10,7 +10,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP, Context
+from mcp.server.fastmcp import FastMCP, Context, Image
 
 from .session import TuningSession
 from .resources import read_resource
@@ -211,6 +211,31 @@ def run_convergence_test(ctx: Context,
     """
     from .simulation.convergence import run_convergence_test as _conv
     return _conv(_get_session(ctx), element_label, scaling_factors, axis)
+
+
+# ---------------------------------------------------------------------------
+# Visualization (1)
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def preview_intensity(ctx: Context,
+                      element_label: str,
+                      phase: str = "both") -> Image:
+    """Generate a 2D intensity map with H/V cuts through peak at a beamline element.
+
+    Returns a PNG image showing beam intensity distribution. For phase="both",
+    displays before and after panels side-by-side for comparison.
+
+    Args:
+        element_label: Which element to preview at
+        phase: "before", "after", or "both" (default "both")
+    """
+    import base64
+    from .simulation.runner import run_preview as _preview
+    result = _preview(_get_session(ctx), element_label, phase)
+    if "image_base64" not in result:
+        raise ValueError(result.get("message", "Preview generation failed"))
+    return Image(data=base64.b64decode(result["image_base64"]), format="png")
 
 
 # ---------------------------------------------------------------------------
