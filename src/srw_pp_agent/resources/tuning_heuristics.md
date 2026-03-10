@@ -63,9 +63,26 @@ needed (≥3× beam FWHM is a good target).
   factor until the edges are clean. This is a necessary (not sufficient)
   condition for correctness.
 
+  **This applies even when a downstream element will clip the beam.**
+  A physical aperture (slit, mirror, zone plate) clips the beam correctly
+  as part of the optics. Mesh-edge clipping is a numerical artifact: it
+  truncates the wavefront before the FFT propagation step, introducing
+  errors into the phase and amplitude that corrupt all subsequent results.
+  The mesh must be wide enough to contain the full beam at every
+  propagation step, regardless of what downstream optics do to it.
+
 - **Resolution factor:** Start at 1.0. If FWHM is below diffraction limit
   or oscillates, increase resolution. Values above 2-3 are rarely needed
   and get expensive fast.
+
+- **Large grid at a drift is a mode smell.** If a drift requires a very
+  large number of grid points (high range or resolution factors) to
+  converge, the propagator mode may be wrong — not the grid size. A
+  correct mode choice factors out the dominant phase curvature, allowing
+  the propagation to succeed on a modest grid. Needing an unusually large
+  grid at a drift (absent a demanding downstream element like a zone plate
+  or fine sample feature) is a sign that the quadratic phase is not being
+  handled properly. Try a different mode before increasing the grid.
 
 - **After focusing elements:** The beam size changes dramatically.
   Increase range factor (2-4×) to capture the full beam. Since
@@ -76,6 +93,46 @@ needed (≥3× beam FWHM is a good target).
   but can often decrease resolution since the phase varies more slowly.
   Decreasing resolution (coarser pitch) saves compute, which can offset
   the cost of the larger range.
+
+## Minimize Resize Operations
+
+Every resize (range or resolution factor ≠ 1) requires interpolation of
+the wavefront onto a new grid, which introduces small numerical errors.
+These errors accumulate: a sharp reduction followed shortly by a large
+expansion (or vice versa) compounds interpolation losses from both steps.
+The goal is to achieve a correct result with the **fewest resizes**.
+
+- **Avoid shrink-then-expand patterns.** Shrinking the range or
+  resolution at one element and then expanding it by a large factor a
+  few elements later discards grid points (and the information they
+  carry) only to re-create them by interpolation. The re-created points
+  are less accurate than the originals. For example, reducing range by
+  0.1× at a pinhole and then expanding by 60× at the next drift loses
+  precision compared to a more moderate shrink (0.3×) followed by a
+  smaller expansion (12×). Prefer the gentlest resize that still
+  satisfies the edge-intensity and sampling requirements.
+
+- **Combine resizes when possible.** If two consecutive elements both
+  need a resize in the same direction (e.g. both need range expansion),
+  apply the full factor at the first element rather than splitting it
+  across two steps. Each resize is an interpolation pass; fewer passes
+  mean less accumulated error.
+
+- **Leave factors at 1.0 unless there is a clear reason to change
+  them.** Do not resize "just in case." Only adjust range when
+  edge_intensity_ratio indicates clipping, or when the beam size is
+  about to change dramatically (focusing, aperture clip). Only adjust
+  resolution when the mesh pitch is too coarse for the beam or element
+  features.
+
+- **Watch for cascading grid bloat.** Range and resolution factors
+  compound multiplicatively through the beamline. A 1.8× V range
+  expansion early on propagates through every subsequent element,
+  potentially creating an unnecessarily large grid at the end. If an
+  early expansion is needed, look for a natural place downstream
+  (e.g. an aperture that clips the beam) to bring the range back
+  down, rather than carrying the enlarged grid through the entire
+  beamline.
 
 ## Element Sampling Requirements
 
@@ -119,8 +176,56 @@ increase the resolution rescale factor for the preceding propagation
 step. This is a hard sampling requirement — no choice of propagator
 mode will compensate for under-resolving the element itself.
 
+## Grid Point Budget at Apertures
+
+When a pinhole, slit, or other aperture dramatically compresses the mesh
+range, the number of grid points can drop to dangerously low levels.
+Range and resolution factors compound: `new_n ≈ old_n × range × resolution`.
+
+**Hard minimum: 100 points per axis. Target: 150+ points per axis.**
+
+The agent MUST compute the expected post-aperture grid size before
+finalizing parameters. If the grid would fall below 100 points in either
+axis, the agent MUST increase the resolution factor (Rx or Ry) to
+compensate. Leaving a coarse grid (e.g. 50-70 points) is never acceptable
+— it produces noisy, artifact-ridden profiles at ALL downstream elements
+and cannot be fixed downstream.
+
+**Strategy for tight apertures:**
+- Use aggressive range compression (rx, ry << 1) to match the aperture
+  size — this is correct and necessary.
+- Compensate with resolution boost (Rx, Ry > 1) to maintain point count.
+- If the upstream grid is too small to provide enough points even with
+  large Rx/Ry, increase the source mesh size (nx, ny) in mesh_params.
+- After computing expected grid size, also verify that the pitch
+  (range / n_points) is fine enough to resolve the beam: at least 10-20
+  points across the beam FWHM at the aperture.
+
 ## Red Flags
 - FWHM < 0.5× diffraction limit → almost certainly aliasing
 - Flux ratio < 0.8 without apertures → beam clipped by mesh range
-- edge_intensity_ratio > 0 → beam extends to mesh boundary, increase range
+- edge_intensity_ratio > 0.01 → beam extends to mesh boundary, increase
+  range; this must be fixed regardless of whether a downstream element
+  clips the beam (physical aperture clipping ≠ numerical mesh-edge
+  clipping). **An edge ratio >0.05 (5%) is a critical failure** — it means
+  substantial flux loss and wavefront corruption. Do not document these as
+  "acceptable tradeoffs." Fix them by increasing range, switching modes,
+  or enlarging the source mesh. Values of 0.001-0.01 are acceptable ONLY
+  for hard-edged aperture diffraction (sinc/Airy wing spillover).
+- Grid < 100 points in any axis at any element → insufficient sampling;
+  increase resolution factor or source mesh size. This produces noisy
+  profiles downstream and is never acceptable.
 - FWHM changes >10% when resolution changes by 0.5× → not converged
+- Sharp range/resolution decrease followed by large increase (or vice versa)
+  within a few elements → excessive resizing; interpolation error accumulates
+  from both steps. Prefer fewer, gentler resizes that achieve the same net
+  effect
+- Drift requiring very large grid (high range/resolution) to converge →
+  likely wrong propagator mode; a correct mode factors out the dominant phase
+  curvature and should not need an oversized grid. Exception: drifts
+  immediately before elements with fine spatial structure (zone plates,
+  gratings, detailed samples) may legitimately need high resolution
+- Noisy or oscillating line profiles at downstream elements → trace back to
+  find the upstream element with fewest grid points (often an aperture) and
+  increase resolution there. Do not attempt to fix noise at the downstream
+  element — the damage is done upstream.

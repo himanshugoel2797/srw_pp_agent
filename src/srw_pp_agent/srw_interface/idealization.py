@@ -42,7 +42,9 @@ def compute_ideal_focal_length(element_def: dict) -> float | None:
     """
     elem_type = element_def.get("type", "").lower()
 
-    if elem_type == "mirror":
+    if elem_type == "crystal":
+        return None  # Crystals are diffractive, not focusing in the thin-lens sense
+    elif elem_type == "mirror":
         return _compute_mirror_focal_length(element_def)
     elif elem_type == "crl":
         effective_f = element_def.get("focal_length_m")

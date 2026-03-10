@@ -23,7 +23,6 @@ from ..session import TuningSession
 from ..srw_interface.propagation import expand_5_to_12_params
 from ..srw_interface.source import create_source_wavefront
 from ..srw_interface.wavefront import copy_wavefront, serialize_wavefront
-from ..srw_interface.elements import simplified_to_srw_element
 from .cache import WavefrontCache
 
 # Default timeout for a single propagation run
@@ -106,24 +105,16 @@ def _build_propagation_request(
             )
         working_elements = working_elements[:stop_idx]
 
-    # Build SRW elements and propagation parameter arrays
-    srw_elements = []
+    # Build element definitions and propagation parameter arrays
+    # Send plain dicts to subprocess (SRW C objects can't be pickled)
+    element_defs = []
     prop_params_arrays = []
     labels = []
 
     for elem in working_elements:
         label = elem.get("label", "")
         labels.append(label)
-
-        try:
-            srw_elem = simplified_to_srw_element(elem)
-            srw_elements.append(srw_elem)
-        except Exception as e:
-            return SimulationError(
-                error_type="srw_error",
-                message=f"Failed to build element {label}: {e}",
-                element_label=label,
-            )
+        element_defs.append(elem)
 
         # Get propagation params for this element
         params = session.propagation_params.get(label, {
@@ -159,7 +150,7 @@ def _build_propagation_request(
 
     return {
         "wfr_data": wfr_data,
-        "elements": srw_elements,
+        "element_defs": element_defs,
         "prop_params": prop_params_arrays,
         "labels": labels,
     }

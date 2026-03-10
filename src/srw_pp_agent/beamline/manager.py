@@ -41,17 +41,21 @@ async def load_beamline(session: TuningSession, beamline_definition: dict | str)
     session.convergence_tests = []
     session.idealization_tests = []
 
-    # Initialize default propagation params for all elements
+    # Initialize propagation params from script (if parsed) or use defaults
+    parsed_pp = definition.get("_propagation_params", {})
     session.propagation_params = {}
     for elem in definition["elements"]:
         label = elem.get("label", "")
-        session.propagation_params[label] = {
-            "mode": 0,
-            "range_x": 1.0,
-            "range_y": 1.0,
-            "resolution_x": 1.0,
-            "resolution_y": 1.0,
-        }
+        if label in parsed_pp:
+            session.propagation_params[label] = parsed_pp[label]
+        else:
+            session.propagation_params[label] = {
+                "mode": 0,
+                "range_x": 1.0,
+                "range_y": 1.0,
+                "resolution_x": 1.0,
+                "resolution_y": 1.0,
+            }
 
     # Create source wavefront in a subprocess to avoid blocking the MCP event loop
     source_def = definition.get("source", {})
@@ -138,7 +142,8 @@ def edit_beamline(session: TuningSession, action: str, target_label: str,
         raise ValueError(f"Unknown action: {action}")
 
     # Recompute cumulative distances
-    session.canonical_definition["elements"] = assign_cumulative_distances(elements)
+    first_optic_dist = session.canonical_definition.get("source", {}).get("first_optic_distance_m", 0.0)
+    session.canonical_definition["elements"] = assign_cumulative_distances(elements, first_optic_dist)
 
     # Rebuild working beamline
     session.working_beamline = rebuild_working_beamline(

@@ -6,10 +6,12 @@
 | FWHM much larger than estimate | Beam clipping (range too small); wrong propagator mode near focus |
 | Asymmetric deviation (x ok, y not) | Astigmatism; try different range/resolution values per axis, or try mode 2 with higher point count |
 | Flux loss without apertures | Range too small (beam clipped at edge of mesh); increase range to fix clipping |
-| edge_intensity_ratio > 0 | Beam reaches mesh boundary; increase range before diagnosing anything else |
+| edge_intensity_ratio > 0.01 | Beam reaches mesh boundary; increase range before diagnosing anything else — even if a downstream element will clip the beam, mesh-edge clipping corrupts the wavefront numerically and must be fixed first. **This is never an acceptable tradeoff.** An edge ratio of 0.05+ means significant flux loss and wavefront corruption. Even 0.01 must be actively reduced. Do not leave edge ratios >0.01 with a note that it is "acceptable" — increase the range factor, switch propagation modes, or increase the source mesh until the ratio is below 0.01. |
+| edge_intensity_ratio 0.001–0.01 | Low-level beam wings at boundary. Acceptable only for hard-edged aperture diffraction (sinc/Airy wings decay as 1/x and extend very far). Verify the source is aperture diffraction, not grid clipping of a Gaussian beam. For Gaussian beams, this must be zero. |
 | FWHM oscillates with resolution | Not converged; try higher resolution, a different propagator mode, or both |
 | Idealized element gives same result | Propagation params are likely correct for that element |
 | Idealized element gives different result | Realistic element introduces effects (e.g. slope errors, aberrations) that need more careful resolution |
+| Result changes when resize factors are smoothed out | Excessive resizing — shrink-then-expand or many consecutive resizes are accumulating interpolation error; reduce the number of resize steps (see "Minimize Resize Operations" in tuning_heuristics.md) |
 
 ## Interpretation Guidelines
 
@@ -112,3 +114,25 @@ to give each estimate:
 
 - Always check edge_intensity_ratio before diagnosing any other issue.
   If the beam is hitting the mesh boundary, nothing else is trustworthy.
+  Do not skip this check on the grounds that a downstream element (aperture,
+  slit, mirror) will clip the beam anyway. Physical clipping by an optical
+  element is a real effect and is computed correctly. Mesh-edge clipping is
+  a numerical artifact that corrupts the wavefront phase and amplitude before
+  the propagation FFT, invalidating all results at that step and beyond.
+
+- **Grid adequacy after apertures is mandatory.** When an aperture (slit,
+  pinhole) dramatically compresses the grid via small range factors, the
+  agent MUST verify that the resulting grid has enough points — at minimum
+  100 points per axis, ideally 150+. Compute the expected grid size:
+  `new_n ≈ old_n × range × resolution`. If this falls below 100, increase
+  the resolution factor (Rx, Ry) until ≥150 points are achieved. A coarse
+  grid at an aperture (e.g. 50-70 points) produces noisy, artifact-ridden
+  profiles at all downstream elements. This is NOT an acceptable tradeoff —
+  it must be corrected by increasing resolution factors or source mesh size.
+
+- **Noisy downstream profiles trace back to upstream grid bottlenecks.**
+  If a beam profile shows high-frequency oscillations or noise (especially
+  in line cuts), the cause is almost always insufficient grid points at an
+  upstream aperture or focus. The agent must trace back through the beamline
+  to find the element with the fewest grid points and increase resolution
+  there, rather than attempting to fix the noise at the downstream element.

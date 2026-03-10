@@ -89,8 +89,15 @@ def _do_propagation(request: dict) -> dict:
     )
     from ..srw_interface.metrics import extract_metrics
 
+    from ..srw_interface.elements import simplified_to_srw_element
+
     wfr = deserialize_wavefront(request["wfr_data"])
-    elements = request["elements"]  # list of SRW element objects
+    # Build SRW elements from definitions (can't pickle C extension objects)
+    element_defs = request.get("element_defs") or request.get("elements", [])
+    if element_defs and isinstance(element_defs[0], dict):
+        elements = [simplified_to_srw_element(ed) for ed in element_defs]
+    else:
+        elements = element_defs  # legacy: pre-built SRW objects
     prop_params = request["prop_params"]  # list of 12-element arrays
     labels = request.get("labels", [])
     element_by_element = request.get("element_by_element", True)
@@ -139,8 +146,15 @@ def _do_preview(request: dict) -> dict:
     from ..srw_interface.propagation import propagate_element_by_element
     from ..srw_interface.metrics import extract_intensity_2d
 
+    from ..srw_interface.elements import simplified_to_srw_element
+
     wfr = deserialize_wavefront(request["wfr_data"])
-    elements = request["elements"]
+    # Build SRW elements from definitions (can't pickle C extension objects)
+    element_defs = request.get("element_defs") or request.get("elements", [])
+    if element_defs and isinstance(element_defs[0], dict):
+        elements = [simplified_to_srw_element(ed) for ed in element_defs]
+    else:
+        elements = element_defs
     prop_params = request["prop_params"]
     labels = request.get("labels", [])
     target_label = request["target_label"]

@@ -32,14 +32,18 @@ def extract_metrics(wfr: Any) -> dict:
     """
     intensity_2d, mesh_info = extract_intensity_2d(wfr)
 
-    proj_x = compute_1d_projection(intensity_2d, axis="x")
-    proj_y = compute_1d_projection(intensity_2d, axis="y")
-
     coords_x = np.linspace(mesh_info["x_start"], mesh_info["x_fin"], mesh_info["nx"])
     coords_y = np.linspace(mesh_info["y_start"], mesh_info["y_fin"], mesh_info["ny"])
 
-    fwhm_x = compute_fwhm_from_profile(proj_x, coords_x)
-    fwhm_y = compute_fwhm_from_profile(proj_y, coords_y)
+    # FWHM from central line cuts through the peak (not projections).
+    # Projections (sum over other axis) give misleading FWHM for undulator
+    # radiation with ring structure.
+    peak_idx = np.unravel_index(np.argmax(intensity_2d), intensity_2d.shape)
+    cut_x = intensity_2d[peak_idx[0], :]  # horizontal cut through peak row
+    cut_y = intensity_2d[:, peak_idx[1]]  # vertical cut through peak column
+
+    fwhm_x = compute_fwhm_from_profile(cut_x, coords_x)
+    fwhm_y = compute_fwhm_from_profile(cut_y, coords_y)
 
     peak_intensity = float(np.max(intensity_2d))
     total_flux = compute_total_flux(intensity_2d, mesh_info)
@@ -53,8 +57,8 @@ def extract_metrics(wfr: Any) -> dict:
 
     range_x_mm = (mesh_info["x_fin"] - mesh_info["x_start"]) * 1e3
     range_y_mm = (mesh_info["y_fin"] - mesh_info["y_start"]) * 1e3
-    pitch_x_um = (range_x_mm / mesh_info["nx"] * 1e3) if mesh_info["nx"] > 1 else 0.0
-    pitch_y_um = (range_y_mm / mesh_info["ny"] * 1e3) if mesh_info["ny"] > 1 else 0.0
+    pitch_x_um = (range_x_mm / (mesh_info["nx"] - 1) * 1e3) if mesh_info["nx"] > 1 else 0.0
+    pitch_y_um = (range_y_mm / (mesh_info["ny"] - 1) * 1e3) if mesh_info["ny"] > 1 else 0.0
 
     return {
         "fwhm_x_um": fwhm_x * 1e6,
@@ -100,13 +104,6 @@ def extract_intensity_2d(wfr: Any) -> tuple[np.ndarray, dict]:
     }
     return intensity_2d, mesh_info
 
-
-def compute_1d_projection(intensity_2d: np.ndarray, axis: str) -> np.ndarray:
-    """Compute 1D projection by integrating over the other axis."""
-    if axis == "x":
-        return np.sum(intensity_2d, axis=0)  # sum over y (rows)
-    else:
-        return np.sum(intensity_2d, axis=1)  # sum over x (columns)
 
 
 def compute_fwhm_from_profile(profile: np.ndarray, coordinates: np.ndarray) -> float:

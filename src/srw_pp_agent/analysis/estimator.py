@@ -42,7 +42,12 @@ def compute_analytical_estimates(session: TuningSession,
     q_y = complex(0, z_R_y)
 
     estimates = []
-    cumulative_distance = 0.0
+    # Start at the first optic position (source to first element distance)
+    first_optic_dist = source.get("first_optic_distance_m", 0.0)
+    cumulative_distance = first_optic_dist
+    # Propagate q through the initial drift from source to first optic
+    q_x = q_x + first_optic_dist
+    q_y = q_y + first_optic_dist
     source_size_x = 2.355 * waist_x  # FWHM = 2.355 * sigma
     source_size_y = 2.355 * waist_y
 
@@ -65,7 +70,26 @@ def compute_analytical_estimates(session: TuningSession,
             if fy is not None and fy != 0 and abs(fy) < 1e20:
                 q_y = q_y / (1 - q_y / fy)
 
-        # Skip apertures — they don't change beam parameters in Gaussian model
+        elif elem_type == "aperture":
+            # If the beam is significantly clipped by an aperture, reset the
+            # Gaussian beam parameter to approximate the clipped beam.
+            # Treat the aperture as creating a new effective Gaussian with
+            # waist equal to the aperture half-size (matched to 1/e^2).
+            aperture_x = elem.get("size_x_m", elem.get("diameter_m", 0.001))
+            aperture_y = elem.get("size_y_m", aperture_x)
+            w_x = _beam_size_from_q(q_x, wavelength)
+            w_y = _beam_size_from_q(q_y, wavelength)
+            fwhm_x_current = 2.355 * w_x
+            fwhm_y_current = 2.355 * w_y
+            if fwhm_x_current > aperture_x:
+                # Beam clipped: reset to aperture-limited Gaussian
+                new_w_x = aperture_x / 2.355  # sigma from FWHM = aperture
+                new_zR_x = math.pi * new_w_x**2 / wavelength
+                q_x = complex(0, new_zR_x)  # new waist at aperture
+            if fwhm_y_current > aperture_y:
+                new_w_y = aperture_y / 2.355
+                new_zR_y = math.pi * new_w_y**2 / wavelength
+                q_y = complex(0, new_zR_y)
 
         # Compute beam parameters at this element
         est = _compute_element_estimate(
@@ -135,11 +159,20 @@ def _get_focal_length(elem: dict) -> float | None:
 def _get_focal_lengths_xy(elem: dict) -> tuple[float | None, float | None]:
     """Extract per-axis focal lengths (fx, fy) from an element definition.
 
-    Both elliptical and cylindrical mirrors focus in one plane only.
-    For lenses, CRLs, and zone plates, fx == fy (symmetric focusing).
+    Priority:
+    1. Explicit fx/fy keys on the element (set by parser for CRLs, lenses, etc.)
+    2. Type-specific inference (mirror orientation, etc.)
+    3. Symmetric fallback from focal_length_m
     """
     elem_type = elem.get("type", "").lower()
 
+    # 1. Explicit per-axis focal lengths — any element type
+    fx = elem.get("fx")
+    fy = elem.get("fy")
+    if fx is not None and fy is not None:
+        return fx, fy
+
+    # 2. Type-specific inference
     if elem_type == "mirror":
         focal_length = _get_focal_length(elem)
         if focal_length is None:
@@ -155,12 +188,7 @@ def _get_focal_lengths_xy(elem: dict) -> tuple[float | None, float | None]:
         else:
             return focal_length, None
 
-    elif elem_type == "lens":
-        fx = elem.get("fx", elem.get("focal_length_m"))
-        fy = elem.get("fy", fx)
-        return fx, fy
-
-    # CRL, zone_plate, etc. — symmetric
+    # 3. Symmetric fallback
     f = _get_focal_length(elem)
     return f, f
 

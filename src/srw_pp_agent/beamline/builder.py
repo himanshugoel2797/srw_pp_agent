@@ -48,7 +48,8 @@ def rebuild_working_beamline(
     elements = _apply_probes(elements, active_probes)
 
     # Recompute cumulative distances
-    elements = assign_cumulative_distances(elements)
+    first_optic_dist = working.get("source", {}).get("first_optic_distance_m", 0.0)
+    elements = assign_cumulative_distances(elements, first_optic_dist)
 
     working["elements"] = elements
     return working

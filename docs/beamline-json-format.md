@@ -63,7 +63,33 @@ simplified JSON format. This document describes the schema.
 | `undulator_period_m` | float | 0.021   | Undulator period in meters.                |
 | `num_periods`        | int   | 72      | Number of undulator periods.               |
 | `K_vertical`         | float | 1.5     | Vertical deflection parameter.             |
+| `K_horizontal`       | float | 0.0     | Horizontal deflection parameter (0 for planar). |
 | `sampling_factor`    | float | 1.0     | Mesh sampling density (higher = finer).    |
+
+#### Extended Electron Beam Parameters
+
+These parameters are optional and provide full control over the electron beam
+definition. They are automatically populated when loading from SRW-native
+Python scripts.
+
+| Field                     | Type  | Default | Description                                   |
+|---------------------------|-------|---------|-----------------------------------------------|
+| `energy_spread`           | float | 0.0     | Relative RMS energy spread.                   |
+| `emittance_x_m`           | float | 0.0     | Horizontal emittance [m].                     |
+| `emittance_y_m`           | float | 0.0     | Vertical emittance [m].                       |
+| `beam_size_x_m`           | float | 0.0     | Horizontal RMS beam size [m].                 |
+| `beam_size_y_m`           | float | 0.0     | Vertical RMS beam size [m].                   |
+| `beam_divergence_x_rad`   | float | 0.0     | Horizontal RMS angular divergence [rad].      |
+| `beam_divergence_y_rad`   | float | 0.0     | Vertical RMS angular divergence [rad].        |
+| `beam_center_x_m`         | float | 0.0     | Horizontal beam center position [m].          |
+| `beam_center_y_m`         | float | 0.0     | Vertical beam center position [m].            |
+| `beam_angle_x_rad`        | float | 0.0     | Horizontal beam angle [rad].                  |
+| `beam_angle_y_rad`        | float | 0.0     | Vertical beam angle [rad].                    |
+| `mixed_moment_xxp`        | float | 0.0     | Horizontal position-angle mixed 2nd moment.   |
+| `mixed_moment_yyp`        | float | 0.0     | Vertical position-angle mixed 2nd moment.     |
+| `longitudinal_drift_m`    | float | 0.0     | Longitudinal drift before calculation [m].    |
+| `energy_deviation_GeV`    | float | 0.0     | Average energy deviation [GeV].               |
+| `first_optic_distance_m`  | float | None    | First optical element distance [m] (`op_r`).  |
 
 ### Bending Magnet Source
 
@@ -247,6 +273,54 @@ angles, each focusing one axis. A cylindrical mirror is defined by its
 radius of curvature, while an elliptical mirror is defined by its conjugate
 distances (p and q).
 
+### Crystal
+
+Bragg-diffracting crystal, typically used in Double Crystal Monochromator (DCM)
+pairs. Crystal susceptibility parameters (`psi*`) are energy-dependent and
+should be computed for the specific reflection and photon energy.
+
+```json
+{
+  "type": "crystal",
+  "label": "DCM_C1",
+  "d_spacing_A": 3.1356,
+  "energy_eV": 10063,
+  "psi0r": -9.64e-06,
+  "psi0i": 1.46e-07,
+  "psiHr": -5.09e-06,
+  "psiHi": 1.02e-07,
+  "psiHBr": -5.09e-06,
+  "psiHBi": 1.02e-07,
+  "thickness_m": 0.01,
+  "asymmetry_angle_rad": 0.0,
+  "use_case": 1,
+  "diffraction_angle_rad": 1.5708,
+  "grazing_angle_rad": 0.1978
+}
+```
+
+| Field                    | Type  | Default | Description                                    |
+|--------------------------|-------|---------|------------------------------------------------|
+| `d_spacing_A`            | float | 3.1356  | Crystal d-spacing in Angstroms.                |
+| `energy_eV`              | float | 10000   | Photon energy for susceptibility values.       |
+| `psi0r`                  | float | 0       | Real part of 0th Fourier comp. of susceptibility. |
+| `psi0i`                  | float | 0       | Imaginary part of 0th Fourier comp.            |
+| `psiHr`                  | float | 0       | Real part of H Fourier comp. of susceptibility. |
+| `psiHi`                  | float | 0       | Imaginary part of H Fourier comp.              |
+| `psiHBr`                 | float | 0       | Real part of H-bar Fourier comp.               |
+| `psiHBi`                 | float | 0       | Imaginary part of H-bar Fourier comp.          |
+| `thickness_m`            | float | 0.01    | Crystal thickness in meters.                   |
+| `asymmetry_angle_rad`    | float | 0.0     | Asymmetry angle in radians.                    |
+| `use_case`               | int   | 1       | SRW use case flag (1 = Bragg, 2 = Laue).       |
+| `diffraction_angle_rad`  | float | 0       | Diffraction plane roll angle in radians.       |
+| `grazing_angle_rad`      | float | 0.2     | Bragg/grazing angle in radians.                |
+| `orientation`            | str   | `"horizontal"` | `"horizontal"` or `"vertical"`.         |
+
+**Orientation vectors:** For DCM crystal pairs (where the two crystals have
+opposite normal vector signs), explicit orientation vectors (`nvx`, `nvy`,
+`nvz`, `tvx`, `tvy`) can be provided instead of `grazing_angle_rad` +
+`orientation`. These are preserved exactly when loading from SRW-native scripts.
+
 ### Compound Refractive Lens (CRL)
 
 ```json
@@ -345,3 +419,28 @@ mirrors for vertical and horizontal focusing:
   ]
 }
 ```
+
+---
+
+## Loading from SRW-Native Python Scripts
+
+The server can load beamlines directly from SRW-native Python scripts
+(e.g. those generated by Sirepo). These scripts use the standard `varParam`
+list format with `set_optics()` functions.
+
+Pass the `.py` file path to `load_beamline` — the parser will:
+
+1. Extract the `varParam` list and convert it to simplified JSON
+2. Map electron beam (`ebm_*`) and undulator (`und_*`) parameters to the
+   undulator source definition
+3. Detect element types from parameter patterns (`op_*` prefixes):
+   - `op_X_L` → drift
+   - `op_X_shape` → aperture
+   - `op_X_d_sp` → crystal
+   - `op_X_p` + `op_X_q` → elliptical mirror
+4. Preserve propagation parameters (`op_*_pp` arrays) as
+   `_propagation_params` for automatic initialization
+5. Preserve crystal orientation vectors exactly (important for DCM pairs)
+
+The original SRW 17-element propagation parameter arrays are also stored
+in `_raw_propagation_params` for lossless round-tripping.

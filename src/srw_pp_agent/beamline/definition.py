@@ -39,7 +39,8 @@ def parse_beamline_definition(raw: dict | str) -> dict:
     # Normalize
     definition = _normalize_definition(raw)
     validate_labels_unique(definition["elements"])
-    definition["elements"] = assign_cumulative_distances(definition["elements"])
+    first_optic_dist = definition.get("source", {}).get("first_optic_distance_m", 0.0)
+    definition["elements"] = assign_cumulative_distances(definition["elements"], first_optic_dist)
     definition["elements"] = compute_smallest_feature_sizes(definition["elements"])
 
     return definition
@@ -76,9 +77,14 @@ def validate_labels_unique(elements: list[dict]) -> None:
         seen.add(label)
 
 
-def assign_cumulative_distances(elements: list[dict]) -> list[dict]:
-    """Compute cumulative_distance_m for each element."""
-    distance = 0.0
+def assign_cumulative_distances(elements: list[dict], initial_distance: float = 0.0) -> list[dict]:
+    """Compute cumulative_distance_m for each element.
+
+    Args:
+        elements: List of element dicts.
+        initial_distance: Distance from source to the first optical element (op_r).
+    """
+    distance = initial_distance
     for elem in elements:
         elem_type = elem.get("type", "").lower()
         if elem_type == "drift":
@@ -152,10 +158,27 @@ def format_element_list(elements: list[dict], prop_params: dict[str, dict] | Non
 def _load_from_python_file(path: Path) -> dict:
     """Load a beamline definition from a Python file.
 
-    Looks for a variable named 'beamline_definition' or 'beamline'.
+    Supports two formats:
+    1. Simplified JSON style — looks for ``beamline_definition``, ``beamline``,
+       or ``bl`` variable containing a dict.
+    2. SRW-native style — looks for ``varParam`` list (Sirepo/SRW standard
+       parameter format) and converts it to simplified JSON.
     """
+    source_text = path.read_text()
+
+    # First, try a safe stubbed parse for SRW-native scripts (varParam style).
+    # This avoids running heavy SRW simulations when we only need the parameters.
+    from .srw_script_parser import parse_srw_script
+    try:
+        result = parse_srw_script(path)
+        return result
+    except ValueError:
+        pass  # No varParam found — fall through to simplified format
+
+    # Fall back to direct execution for simplified-format Python files
+    # that define beamline_definition / beamline / bl variables.
     namespace: dict[str, Any] = {}
-    exec(path.read_text(), namespace)  # noqa: S102
+    exec(source_text, namespace)  # noqa: S102
 
     for name in ("beamline_definition", "beamline", "bl"):
         if name in namespace:

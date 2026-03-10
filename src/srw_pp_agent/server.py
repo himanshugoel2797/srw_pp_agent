@@ -59,6 +59,29 @@ def idealization_guide() -> str:
 
 
 # ---------------------------------------------------------------------------
+# SRW Script Parsing (1)
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def parse_srw_native_script(script_path: str) -> dict:
+    """Parse an SRW-native Python script (varParam + set_optics style) into simplified beamline JSON.
+
+    Converts Sirepo-generated or hand-written SRW scripts into the simplified
+    beamline JSON format without loading into the session or computing source
+    wavefronts. Useful for inspecting what the parser extracts before loading.
+
+    Args:
+        script_path: Path to the SRW-native Python script (.py file)
+
+    Returns:
+        Simplified beamline JSON with source, elements, propagation params.
+    """
+    from pathlib import Path
+    from .beamline.srw_script_parser import parse_srw_script
+    return parse_srw_script(Path(script_path))
+
+
+# ---------------------------------------------------------------------------
 # Beamline Management Tools (8)
 # ---------------------------------------------------------------------------
 
