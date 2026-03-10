@@ -11,10 +11,12 @@ dependencies = [
 
 [project.optional-dependencies]
 srw = ["srwpy"]
+dashboard = ["fastapi>=0.100", "uvicorn[standard]", "websockets", "httpx"]
 dev = ["pytest", "pytest-asyncio"]
 
 [project.scripts]
 srw-pp-agent = "srw_pp_agent.server:main"
+srw-pp-dashboard = "srw_pp_agent.dashboard.app:main"
 
 [build-system]
 requires = ["setuptools>=68.0"]

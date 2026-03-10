@@ -1,0 +1,1124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SRW Beamline Tuning Agent</title>
+<style>
+/* ------------------------------------------------------------------ */
+/* CSS Custom Properties & Reset                                       */
+/* ------------------------------------------------------------------ */
+:root {
+    --bg-primary: #060a14;
+    --bg-secondary: #0c1220;
+    --bg-card: #111827;
+    --bg-card-hover: #1a2332;
+    --bg-input: #0f172a;
+    --border: #1e293b;
+    --border-accent: #334155;
+    --text-primary: #e2e8f0;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+    --accent-blue: #38bdf8;
+    --accent-cyan: #22d3ee;
+    --accent-violet: #a78bfa;
+    --accent-green: #34d399;
+    --accent-orange: #fb923c;
+    --accent-red: #f87171;
+    --accent-pink: #f472b6;
+    --glow-blue: rgba(56, 189, 248, 0.15);
+    --glow-violet: rgba(167, 139, 250, 0.15);
+    --glow-green: rgba(52, 211, 153, 0.1);
+    --radius: 10px;
+    --radius-sm: 6px;
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'SF Mono', Consolas, monospace;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body {
+    font-family: var(--font-sans);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    line-height: 1.5;
+}
+
+/* ------------------------------------------------------------------ */
+/* Layout                                                              */
+/* ------------------------------------------------------------------ */
+.app {
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    height: 100vh;
+}
+.header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 24px;
+    background: linear-gradient(135deg, var(--bg-secondary), #0f1629);
+    border-bottom: 1px solid var(--border);
+    z-index: 10;
+}
+.header-left { display: flex; align-items: center; gap: 14px; }
+.logo-icon {
+    width: 32px; height: 32px;
+    background: linear-gradient(135deg, var(--accent-blue), var(--accent-violet));
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 14px; color: #fff;
+    box-shadow: 0 0 20px var(--glow-blue);
+}
+.header h1 {
+    font-size: 16px; font-weight: 600;
+    background: linear-gradient(90deg, var(--accent-blue), var(--accent-violet));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+.header-subtitle { font-size: 11px; color: var(--text-muted); margin-top: -2px; }
+.status-badge {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 12px; border-radius: 20px;
+    background: var(--bg-card); border: 1px solid var(--border);
+    font-size: 12px; color: var(--text-secondary);
+}
+.status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--text-muted);
+}
+.status-dot.active {
+    background: var(--accent-green);
+    box-shadow: 0 0 8px var(--accent-green);
+    animation: pulse 2s ease-in-out infinite;
+}
+.status-dot.error { background: var(--accent-red); box-shadow: 0 0 8px var(--accent-red); }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+/* Main content area */
+.main-content {
+    display: grid;
+    grid-template-columns: 420px 1fr;
+    overflow: hidden;
+    gap: 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Left Panel: Agent Activity Log                                      */
+/* ------------------------------------------------------------------ */
+.agent-panel {
+    display: flex; flex-direction: column;
+    border-right: 1px solid var(--border);
+    background: var(--bg-secondary);
+    overflow: hidden;
+}
+.panel-header {
+    padding: 12px 16px;
+    display: flex; align-items: center; gap: 8px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px; font-weight: 600; color: var(--text-secondary);
+}
+.panel-header .icon { font-size: 15px; }
+.agent-log {
+    flex: 1; overflow-y: auto; padding: 12px;
+    display: flex; flex-direction: column; gap: 8px;
+    scroll-behavior: smooth;
+}
+.agent-log::-webkit-scrollbar { width: 5px; }
+.agent-log::-webkit-scrollbar-track { background: transparent; }
+.agent-log::-webkit-scrollbar-thumb { background: var(--border-accent); border-radius: 3px; }
+
+/* Log entry styles */
+.log-entry { animation: fadeIn 0.3s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+.log-thinking {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    font-size: 13px; line-height: 1.6;
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.log-thinking .label {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 10px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.5px; color: var(--accent-violet);
+    margin-bottom: 6px;
+}
+
+.log-tool-call {
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.05), rgba(167, 139, 250, 0.05));
+    border: 1px solid rgba(56, 189, 248, 0.2);
+    border-radius: var(--radius);
+    padding: 10px 14px;
+    cursor: pointer;
+    transition: border-color 0.2s;
+}
+.log-tool-call:hover { border-color: var(--accent-blue); }
+.tool-call-header {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px;
+}
+.tool-badge {
+    padding: 2px 8px; border-radius: 4px;
+    font-size: 11px; font-weight: 600;
+    font-family: var(--font-mono);
+    background: linear-gradient(135deg, var(--accent-blue), var(--accent-violet));
+    color: #fff;
+}
+.tool-call-args {
+    display: none; margin-top: 8px;
+    background: var(--bg-primary);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px;
+    font-family: var(--font-mono);
+    font-size: 11px; color: var(--text-secondary);
+    overflow-x: auto; white-space: pre-wrap;
+    max-height: 200px; overflow-y: auto;
+}
+.log-tool-call.expanded .tool-call-args { display: block; }
+.tool-chevron {
+    margin-left: auto; font-size: 10px;
+    color: var(--text-muted);
+    transition: transform 0.2s;
+}
+.log-tool-call.expanded .tool-chevron { transform: rotate(90deg); }
+
+.log-tool-result {
+    background: var(--bg-card);
+    border: 1px solid rgba(52, 211, 153, 0.2);
+    border-left: 3px solid var(--accent-green);
+    border-radius: var(--radius);
+    padding: 10px 14px;
+    cursor: pointer;
+}
+.log-tool-result:hover { border-color: var(--accent-green); }
+.tool-result-header {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; color: var(--accent-green);
+}
+.tool-result-body {
+    display: none; margin-top: 8px;
+    background: var(--bg-primary);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px;
+    font-family: var(--font-mono);
+    font-size: 11px; color: var(--text-secondary);
+    overflow-x: auto; white-space: pre-wrap;
+    max-height: 250px; overflow-y: auto;
+}
+.log-tool-result.expanded .tool-result-body { display: block; }
+
+.log-error {
+    background: rgba(248, 113, 113, 0.08);
+    border: 1px solid rgba(248, 113, 113, 0.3);
+    border-radius: var(--radius);
+    padding: 10px 14px;
+    font-size: 12px; color: var(--accent-red);
+}
+
+.log-status {
+    text-align: center;
+    font-size: 11px; color: var(--text-muted);
+    padding: 4px 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Right Panel: Beamline Visualization                                 */
+/* ------------------------------------------------------------------ */
+.viz-panel {
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    background: var(--bg-primary);
+}
+.viz-content {
+    flex: 1; overflow-y: auto; padding: 16px 20px;
+    display: flex; flex-direction: column; gap: 16px;
+}
+.viz-content::-webkit-scrollbar { width: 5px; }
+.viz-content::-webkit-scrollbar-track { background: transparent; }
+.viz-content::-webkit-scrollbar-thumb { background: var(--border-accent); border-radius: 3px; }
+
+/* Beamline schematic */
+.beamline-section {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+}
+.section-title {
+    font-size: 12px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.8px; color: var(--text-muted);
+    margin-bottom: 12px;
+    display: flex; align-items: center; gap: 6px;
+}
+.beamline-svg-container {
+    overflow-x: auto; overflow-y: visible;
+    padding: 10px 0 20px 0;
+}
+#beamline-svg {
+    min-height: 120px;
+    display: block;
+}
+
+/* Source info card */
+.source-info {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 8px; margin-bottom: 12px;
+}
+.info-chip {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 6px 10px;
+    font-size: 11px;
+}
+.info-chip .label { color: var(--text-muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+.info-chip .value { color: var(--accent-cyan); font-family: var(--font-mono); font-size: 12px; font-weight: 500; }
+
+/* Intensity gallery */
+.intensity-section {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+}
+.intensity-gallery {
+    display: flex; flex-wrap: wrap; gap: 12px;
+}
+.intensity-card {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    cursor: pointer;
+    transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+    max-width: 320px;
+    flex: 1 1 280px;
+}
+.intensity-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--accent-blue);
+    box-shadow: 0 4px 20px var(--glow-blue);
+}
+.intensity-card img {
+    width: 100%; display: block;
+    background: #000;
+}
+.intensity-card .card-label {
+    padding: 6px 10px;
+    font-size: 11px; font-weight: 600;
+    color: var(--accent-cyan);
+    font-family: var(--font-mono);
+    border-top: 1px solid var(--border);
+}
+
+/* Metrics table */
+.metrics-section {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    overflow-x: auto;
+}
+.metrics-table {
+    width: 100%; border-collapse: collapse;
+    font-size: 12px; font-family: var(--font-mono);
+}
+.metrics-table th {
+    text-align: left; padding: 6px 10px;
+    color: var(--text-muted); font-weight: 600;
+    font-size: 10px; text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0;
+    background: var(--bg-card);
+}
+.metrics-table td {
+    padding: 5px 10px;
+    color: var(--text-secondary);
+    border-bottom: 1px solid rgba(30, 41, 59, 0.5);
+}
+.metrics-table tr:hover td { background: var(--bg-card-hover); }
+.metric-good { color: var(--accent-green); }
+.metric-warn { color: var(--accent-orange); }
+.metric-bad { color: var(--accent-red); }
+.element-type-badge {
+    display: inline-block; padding: 1px 6px;
+    border-radius: 3px; font-size: 10px;
+    font-weight: 600; text-transform: uppercase;
+}
+.type-drift { background: rgba(100, 116, 139, 0.2); color: var(--text-muted); }
+.type-lens { background: rgba(56, 189, 248, 0.15); color: var(--accent-blue); }
+.type-mirror { background: rgba(167, 139, 250, 0.15); color: var(--accent-violet); }
+.type-aperture { background: rgba(251, 146, 60, 0.15); color: var(--accent-orange); }
+.type-crystal { background: rgba(244, 114, 182, 0.15); color: var(--accent-pink); }
+.type-crl { background: rgba(52, 211, 153, 0.15); color: var(--accent-green); }
+.type-zone_plate { background: rgba(34, 211, 238, 0.15); color: var(--accent-cyan); }
+
+/* Empty state */
+.empty-state {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 60px 20px; text-align: center;
+    color: var(--text-muted);
+}
+.empty-state .icon { font-size: 48px; margin-bottom: 16px; opacity: 0.3; }
+.empty-state h3 { font-size: 16px; margin-bottom: 6px; color: var(--text-secondary); }
+.empty-state p { font-size: 13px; max-width: 400px; }
+
+/* ------------------------------------------------------------------ */
+/* Image Modal                                                         */
+/* ------------------------------------------------------------------ */
+.modal-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0, 0, 0, 0.85); z-index: 100;
+    align-items: center; justify-content: center;
+    cursor: pointer;
+}
+.modal-overlay.visible { display: flex; }
+.modal-overlay img {
+    max-width: 90vw; max-height: 90vh;
+    border-radius: var(--radius);
+    box-shadow: 0 0 60px rgba(56, 189, 248, 0.2);
+}
+
+/* ------------------------------------------------------------------ */
+/* Bottom Input Bar                                                    */
+/* ------------------------------------------------------------------ */
+.input-bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 20px;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border);
+}
+.input-group {
+    display: flex; align-items: center; gap: 8px;
+    flex: 1;
+}
+.input-group input, .input-group select {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 8px 12px;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: var(--font-sans);
+    outline: none;
+    transition: border-color 0.2s;
+}
+.input-group input:focus, .input-group select:focus {
+    border-color: var(--accent-blue);
+    box-shadow: 0 0 0 2px var(--glow-blue);
+}
+.input-group select { cursor: pointer; }
+#beamline-path { flex: 1; min-width: 200px; }
+#user-message { flex: 2; min-width: 200px; }
+#model-select { width: 160px; }
+
+.btn {
+    padding: 8px 20px;
+    border: none; border-radius: var(--radius-sm);
+    font-size: 13px; font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: var(--font-sans);
+}
+.btn-primary {
+    background: linear-gradient(135deg, var(--accent-blue), var(--accent-violet));
+    color: #fff;
+    box-shadow: 0 2px 12px var(--glow-blue);
+}
+.btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 20px var(--glow-blue);
+}
+.btn-primary:disabled {
+    opacity: 0.5; cursor: not-allowed;
+    transform: none; box-shadow: none;
+}
+.btn-danger {
+    background: rgba(248, 113, 113, 0.15);
+    color: var(--accent-red);
+    border: 1px solid rgba(248, 113, 113, 0.3);
+}
+.btn-danger:hover { background: rgba(248, 113, 113, 0.25); }
+
+/* ------------------------------------------------------------------ */
+/* SVG Beamline Schematic Styles                                       */
+/* ------------------------------------------------------------------ */
+.beam-line { stroke: var(--accent-cyan); stroke-width: 2; opacity: 0.4; }
+.beam-glow { stroke: var(--accent-cyan); stroke-width: 6; opacity: 0.08; }
+.element-group { cursor: pointer; }
+.element-group:hover .element-shape { filter: brightness(1.3); }
+.element-label {
+    fill: var(--text-muted); font-size: 9px;
+    font-family: var(--font-mono);
+    text-anchor: middle;
+}
+.element-type-label {
+    fill: var(--text-secondary); font-size: 8px;
+    font-family: var(--font-sans);
+    text-anchor: middle; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.5px;
+}
+.distance-label {
+    fill: var(--text-muted); font-size: 8px;
+    font-family: var(--font-mono);
+    text-anchor: middle;
+}
+.source-icon { fill: var(--accent-orange); }
+.element-active .element-shape {
+    filter: drop-shadow(0 0 8px var(--accent-blue));
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+    .main-content { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+    .agent-panel { border-right: none; border-bottom: 1px solid var(--border); }
+}
+</style>
+</head>
+<body>
+<div class="app">
+    <!-- Header -->
+    <header class="header">
+        <div class="header-left">
+            <div class="logo-icon">SR</div>
+            <div>
+                <h1>SRW Beamline Tuning Agent</h1>
+                <div class="header-subtitle">AI-Powered Propagation Parameter Optimization</div>
+            </div>
+        </div>
+        <div class="status-badge">
+            <div class="status-dot" id="status-dot"></div>
+            <span id="status-text">Idle</span>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <!-- Left: Agent Activity -->
+        <div class="agent-panel">
+            <div class="panel-header">
+                <span class="icon">&#9881;</span> Agent Activity
+                <span style="margin-left:auto;font-size:11px;color:var(--text-muted)" id="iteration-counter"></span>
+            </div>
+            <div class="agent-log" id="agent-log">
+                <div class="empty-state" id="log-empty">
+                    <div class="icon">&#9733;</div>
+                    <h3>Ready to tune</h3>
+                    <p>Enter a beamline definition path below and click Start to begin AI-powered parameter tuning.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right: Beamline Visualization -->
+        <div class="viz-panel">
+            <div class="panel-header">
+                <span class="icon">&#9670;</span> Beamline Visualization
+            </div>
+            <div class="viz-content" id="viz-content">
+                <!-- Source Info -->
+                <div class="beamline-section" id="source-section" style="display:none">
+                    <div class="section-title">&#9788; Source</div>
+                    <div class="source-info" id="source-info"></div>
+                </div>
+
+                <!-- Beamline Schematic -->
+                <div class="beamline-section" id="schematic-section" style="display:none">
+                    <div class="section-title">&#9656; Beamline Schematic</div>
+                    <div class="beamline-svg-container">
+                        <svg id="beamline-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+                    </div>
+                </div>
+
+                <!-- Intensity Gallery -->
+                <div class="intensity-section" id="intensity-section" style="display:none">
+                    <div class="section-title">&#9632; Intensity Profiles</div>
+                    <div class="intensity-gallery" id="intensity-gallery"></div>
+                </div>
+
+                <!-- Metrics Table -->
+                <div class="metrics-section" id="metrics-section" style="display:none">
+                    <div class="section-title">&#9644; Propagation Metrics</div>
+                    <table class="metrics-table" id="metrics-table">
+                        <thead>
+                            <tr>
+                                <th>Element</th>
+                                <th>Type</th>
+                                <th>FWHM X (&mu;m)</th>
+                                <th>FWHM Y (&mu;m)</th>
+                                <th>Peak I</th>
+                                <th>Total Flux</th>
+                                <th>Edge Ratio</th>
+                            </tr>
+                        </thead>
+                        <tbody id="metrics-body"></tbody>
+                    </table>
+                </div>
+
+                <!-- Empty state -->
+                <div class="empty-state" id="viz-empty">
+                    <div class="icon">&#9670;</div>
+                    <h3>No beamline loaded</h3>
+                    <p>The beamline schematic, intensity profiles, and metrics will appear here once the agent loads a beamline definition.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom Input Bar -->
+    <div class="input-bar">
+        <div class="input-group">
+            <input type="text" id="beamline-path" placeholder="Beamline file path (JSON or Python)..." />
+            <input type="text" id="user-message" placeholder="Additional instructions (optional)..." />
+            <input type="text" id="model-select" placeholder="Model (e.g. qwen2.5)" value="qwen2.5" />
+            <button class="btn btn-primary" id="btn-start" onclick="startAgent()">Start</button>
+            <button class="btn btn-danger" id="btn-stop" onclick="stopAgent()" style="display:none">Stop</button>
+        </div>
+    </div>
+</div>
+
+<!-- Image Modal -->
+<div class="modal-overlay" id="modal" onclick="closeModal()">
+    <img id="modal-img" src="" alt="Intensity preview" />
+</div>
+
+<script>
+/* ------------------------------------------------------------------ */
+/* WebSocket & State                                                   */
+/* ------------------------------------------------------------------ */
+let ws = null;
+let running = false;
+let currentThinkingEl = null;
+
+function connect() {
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${protocol}//${location.host}/ws`);
+
+    ws.onopen = () => { setStatus('idle', 'Connected'); };
+    ws.onclose = () => { setStatus('error', 'Disconnected'); setTimeout(connect, 3000); };
+    ws.onerror = () => { setStatus('error', 'Connection error'); };
+
+    ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        handleMessage(msg);
+    };
+}
+
+function handleMessage(msg) {
+    switch (msg.type) {
+        case 'thinking':
+            addThinking(msg.content);
+            break;
+        case 'token':
+            appendToken(msg.content);
+            break;
+        case 'tool_call':
+            finalizeThinking();
+            addToolCall(msg.tool, msg.args);
+            break;
+        case 'tool_result':
+            addToolResult(msg.tool, msg.result);
+            break;
+        case 'beamline_update':
+            updateBeamline(msg.elements, msg.source);
+            break;
+        case 'intensity_update':
+            addIntensityImage(msg.element_label, msg.image_base64, msg.phase);
+            break;
+        case 'metrics_update':
+            updateMetrics(msg.intermediates, msg.final, msg.run_id, msg.wall_time_s);
+            break;
+        case 'estimates_update':
+            // Could add estimates display — for now just log
+            addStatusLog('Analytical estimates computed for ' + (msg.estimates?.length || 0) + ' elements');
+            break;
+        case 'convergence_update':
+            addStatusLog('Convergence test: ' + (msg.results?.length || 0) + ' scaling levels tested');
+            break;
+        case 'status':
+            setStatus('active', msg.message);
+            addStatusLog(msg.message);
+            break;
+        case 'error':
+            setStatus('error', msg.message);
+            addError(msg.message);
+            break;
+        case 'done':
+            setStatus('idle', 'Agent finished');
+            finalizeThinking();
+            setRunning(false);
+            break;
+        case 'pong':
+            break;
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* Controls                                                            */
+/* ------------------------------------------------------------------ */
+function startAgent() {
+    const path = document.getElementById('beamline-path').value.trim();
+    const message = document.getElementById('user-message').value.trim();
+    const model = document.getElementById('model-select').value.trim() || 'qwen2.5';
+
+    if (!path && !message) {
+        addError('Please enter a beamline file path or a message.');
+        return;
+    }
+
+    // Clear previous
+    clearLog();
+    clearViz();
+
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+            type: 'start',
+            beamline_path: path,
+            user_message: message,
+            model: model,
+        }));
+        setRunning(true);
+    } else {
+        addError('Not connected to server. Retrying...');
+        connect();
+    }
+}
+
+function stopAgent() {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'stop' }));
+    }
+    setRunning(false);
+}
+
+function setRunning(state) {
+    running = state;
+    document.getElementById('btn-start').style.display = state ? 'none' : '';
+    document.getElementById('btn-stop').style.display = state ? '' : 'none';
+    document.getElementById('btn-start').disabled = state;
+}
+
+function setStatus(state, text) {
+    const dot = document.getElementById('status-dot');
+    const label = document.getElementById('status-text');
+    dot.className = 'status-dot' + (state === 'active' ? ' active' : state === 'error' ? ' error' : '');
+    label.textContent = text;
+}
+
+/* ------------------------------------------------------------------ */
+/* Agent Log                                                           */
+/* ------------------------------------------------------------------ */
+function clearLog() {
+    const log = document.getElementById('agent-log');
+    log.innerHTML = '';
+    currentThinkingEl = null;
+}
+
+function getLog() {
+    const empty = document.getElementById('log-empty');
+    if (empty) empty.remove();
+    return document.getElementById('agent-log');
+}
+
+function scrollLog() {
+    const log = document.getElementById('agent-log');
+    log.scrollTop = log.scrollHeight;
+}
+
+function addThinking(content) {
+    if (!currentThinkingEl) {
+        const log = getLog();
+        const el = document.createElement('div');
+        el.className = 'log-entry log-thinking';
+        el.innerHTML = '<div class="label">&#9679; Agent Reasoning</div><div class="thinking-text"></div>';
+        log.appendChild(el);
+        currentThinkingEl = el.querySelector('.thinking-text');
+    }
+    currentThinkingEl.textContent += content;
+    scrollLog();
+}
+
+function appendToken(content) {
+    if (!currentThinkingEl) {
+        addThinking(content);
+        return;
+    }
+    currentThinkingEl.textContent += content;
+    scrollLog();
+}
+
+function finalizeThinking() {
+    currentThinkingEl = null;
+}
+
+function addToolCall(toolName, args) {
+    const log = getLog();
+    const el = document.createElement('div');
+    el.className = 'log-entry log-tool-call';
+    const argsStr = JSON.stringify(args, null, 2);
+    el.innerHTML = `
+        <div class="tool-call-header" onclick="this.parentElement.classList.toggle('expanded')">
+            <span class="tool-badge">${escHtml(toolName)}</span>
+            <span style="color:var(--text-muted);font-size:11px">called</span>
+            <span class="tool-chevron">&#9654;</span>
+        </div>
+        <div class="tool-call-args">${escHtml(argsStr)}</div>
+    `;
+    log.appendChild(el);
+    scrollLog();
+}
+
+function addToolResult(toolName, result) {
+    const log = getLog();
+    const el = document.createElement('div');
+    el.className = 'log-entry log-tool-result';
+    const hasError = result && result.error;
+    const preview = summarizeResult(toolName, result);
+    const resultStr = JSON.stringify(result, null, 2);
+    el.innerHTML = `
+        <div class="tool-result-header" onclick="this.parentElement.classList.toggle('expanded')">
+            <span>${hasError ? '&#10006;' : '&#10004;'}</span>
+            <span style="font-family:var(--font-mono);font-size:11px">${escHtml(toolName)}</span>
+            <span style="color:var(--text-secondary);font-size:11px;margin-left:4px">${escHtml(preview)}</span>
+            <span class="tool-chevron" style="margin-left:auto;color:var(--text-muted);font-size:10px">&#9654;</span>
+        </div>
+        <div class="tool-result-body">${escHtml(resultStr)}</div>
+    `;
+    if (hasError) {
+        el.style.borderColor = 'rgba(248, 113, 113, 0.3)';
+        el.style.borderLeftColor = 'var(--accent-red)';
+        el.querySelector('.tool-result-header').style.color = 'var(--accent-red)';
+    }
+    log.appendChild(el);
+    scrollLog();
+}
+
+function addStatusLog(text) {
+    const log = getLog();
+    const el = document.createElement('div');
+    el.className = 'log-entry log-status';
+    el.textContent = text;
+    log.appendChild(el);
+    scrollLog();
+}
+
+function addError(text) {
+    const log = getLog();
+    const el = document.createElement('div');
+    el.className = 'log-entry log-error';
+    el.textContent = text;
+    log.appendChild(el);
+    scrollLog();
+}
+
+function summarizeResult(toolName, result) {
+    if (!result) return '';
+    if (result.error) return result.error.substring(0, 80);
+    if (toolName === 'load_beamline') {
+        return `${result.source_type || '?'} source, ${(result.elements || []).length} elements`;
+    }
+    if (toolName === 'run_propagation') {
+        const f = result.final || {};
+        return `FWHM: ${fmt(f.fwhm_x_um)}x${fmt(f.fwhm_y_um)} \u00b5m, ${fmt(result.wall_time_s)}s`;
+    }
+    if (toolName === 'set_propagation_params') {
+        return `${Object.keys(result.applied_params || {}).length} elements updated`;
+    }
+    if (toolName === 'preview_intensity') {
+        return result.element_label || 'image generated';
+    }
+    if (toolName === 'compute_analytical_estimates') {
+        return `${(result.estimates || []).length} estimates`;
+    }
+    if (result._truncated) return '(large result)';
+    return '';
+}
+
+function fmt(v) {
+    if (v === undefined || v === null) return '-';
+    if (typeof v === 'number') return v < 0.01 ? v.toExponential(2) : v.toFixed(2);
+    return String(v);
+}
+
+function escHtml(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+}
+
+/* ------------------------------------------------------------------ */
+/* Beamline Visualization                                              */
+/* ------------------------------------------------------------------ */
+let beamlineElements = [];
+
+function clearViz() {
+    document.getElementById('source-section').style.display = 'none';
+    document.getElementById('schematic-section').style.display = 'none';
+    document.getElementById('intensity-section').style.display = 'none';
+    document.getElementById('metrics-section').style.display = 'none';
+    document.getElementById('viz-empty').style.display = '';
+    document.getElementById('source-info').innerHTML = '';
+    document.getElementById('beamline-svg').innerHTML = '';
+    document.getElementById('intensity-gallery').innerHTML = '';
+    document.getElementById('metrics-body').innerHTML = '';
+    beamlineElements = [];
+}
+
+function updateBeamline(elements, source) {
+    document.getElementById('viz-empty').style.display = 'none';
+    beamlineElements = elements || [];
+
+    // Source info
+    if (source && source.source_type) {
+        document.getElementById('source-section').style.display = '';
+        const si = document.getElementById('source-info');
+        si.innerHTML = `
+            <div class="info-chip"><div class="label">Type</div><div class="value">${escHtml(source.source_type)}</div></div>
+            <div class="info-chip"><div class="label">Energy</div><div class="value">${fmt(source.photon_energy_eV)} eV</div></div>
+            <div class="info-chip"><div class="label">Length</div><div class="value">${fmt(source.total_length_m)} m</div></div>
+            <div class="info-chip"><div class="label">Mesh NX</div><div class="value">${source.source_mesh?.nx || '-'}</div></div>
+            <div class="info-chip"><div class="label">Mesh NY</div><div class="value">${source.source_mesh?.ny || '-'}</div></div>
+            <div class="info-chip"><div class="label">Range X</div><div class="value">${fmt(source.source_mesh?.range_x_mm)} mm</div></div>
+        `;
+    }
+
+    // Draw schematic
+    if (elements && elements.length > 0) {
+        document.getElementById('schematic-section').style.display = '';
+        drawBeamlineSchematic(elements);
+    }
+}
+
+function drawBeamlineSchematic(elements) {
+    const svg = document.getElementById('beamline-svg');
+    const padding = 50;
+    const elemSpacing = 100;
+    const totalWidth = padding * 2 + (elements.length + 1) * elemSpacing;
+    const height = 140;
+
+    svg.setAttribute('viewBox', `0 0 ${totalWidth} ${height}`);
+    svg.setAttribute('width', totalWidth);
+    svg.setAttribute('height', height);
+
+    let html = '';
+
+    // Background glow line
+    const lineY = 55;
+    html += `<line class="beam-glow" x1="${padding}" y1="${lineY}" x2="${totalWidth - padding}" y2="${lineY}"/>`;
+    html += `<line class="beam-line" x1="${padding}" y1="${lineY}" x2="${totalWidth - padding}" y2="${lineY}"/>`;
+
+    // Source icon
+    const srcX = padding;
+    html += `<g class="element-group" transform="translate(${srcX}, ${lineY})">`;
+    html += `<circle class="source-icon" cx="0" cy="0" r="10" opacity="0.8"/>`;
+    html += `<circle cx="0" cy="0" r="14" fill="none" stroke="var(--accent-orange)" stroke-width="1" opacity="0.3"/>`;
+    html += `<circle cx="0" cy="0" r="18" fill="none" stroke="var(--accent-orange)" stroke-width="0.5" opacity="0.15"/>`;
+    html += `<text class="element-label" x="0" y="32">Source</text>`;
+    html += `</g>`;
+
+    // Elements
+    elements.forEach((elem, i) => {
+        const x = padding + (i + 1) * elemSpacing;
+        const etype = (elem.type || '').toLowerCase();
+        const label = elem.label || `E${i}`;
+
+        html += `<g class="element-group" transform="translate(${x}, ${lineY})" data-label="${escHtml(label)}">`;
+        html += drawElementIcon(etype, label);
+
+        // Label below
+        const shortLabel = label.length > 12 ? label.substring(0, 11) + '...' : label;
+        html += `<text class="element-type-label" x="0" y="-24">${escHtml(etype)}</text>`;
+        html += `<text class="element-label" x="0" y="32">${escHtml(shortLabel)}</text>`;
+
+        // Distance
+        const dist = elem.cumulative_distance_m;
+        if (dist !== undefined) {
+            html += `<text class="distance-label" x="0" y="44">${dist.toFixed(2)}m</text>`;
+        }
+
+        html += `</g>`;
+    });
+
+    svg.innerHTML = html;
+}
+
+function drawElementIcon(type, label) {
+    const colors = {
+        drift: 'var(--text-muted)',
+        lens: 'var(--accent-blue)',
+        mirror: 'var(--accent-violet)',
+        aperture: 'var(--accent-orange)',
+        crystal: 'var(--accent-pink)',
+        crl: 'var(--accent-green)',
+        zone_plate: 'var(--accent-cyan)',
+    };
+    const color = colors[type] || 'var(--text-secondary)';
+
+    switch (type) {
+        case 'drift':
+            return `<line class="element-shape" x1="-6" y1="0" x2="6" y2="0" stroke="${color}" stroke-width="3" stroke-linecap="round"/>`;
+        case 'lens':
+            return `
+                <path class="element-shape" d="M-4,-14 Q6,0 -4,14" fill="none" stroke="${color}" stroke-width="2"/>
+                <path class="element-shape" d="M4,-14 Q-6,0 4,14" fill="none" stroke="${color}" stroke-width="2"/>
+            `;
+        case 'mirror':
+            return `
+                <rect class="element-shape" x="-3" y="-16" width="6" height="32" rx="2"
+                      fill="${color}" opacity="0.3" stroke="${color}" stroke-width="1.5"
+                      transform="rotate(-15)"/>
+            `;
+        case 'aperture':
+            return `
+                <line class="element-shape" x1="0" y1="-16" x2="0" y2="-5" stroke="${color}" stroke-width="2.5" stroke-linecap="round"/>
+                <line class="element-shape" x1="0" y1="5" x2="0" y2="16" stroke="${color}" stroke-width="2.5" stroke-linecap="round"/>
+            `;
+        case 'crystal':
+            return `
+                <polygon class="element-shape" points="0,-14 10,0 0,14 -10,0"
+                         fill="${color}" opacity="0.2" stroke="${color}" stroke-width="1.5"/>
+            `;
+        case 'crl':
+            return `
+                <path class="element-shape" d="M-6,-12 Q0,-6 -6,0 Q0,6 -6,12" fill="none" stroke="${color}" stroke-width="1.5"/>
+                <path class="element-shape" d="M0,-12 Q6,-6 0,0 Q6,6 0,12" fill="none" stroke="${color}" stroke-width="1.5"/>
+                <path class="element-shape" d="M6,-12 Q12,-6 6,0 Q12,6 6,12" fill="none" stroke="${color}" stroke-width="1.5"/>
+            `;
+        case 'zone_plate':
+            return `
+                <circle class="element-shape" cx="0" cy="0" r="12" fill="none" stroke="${color}" stroke-width="1.5"/>
+                <circle class="element-shape" cx="0" cy="0" r="8" fill="none" stroke="${color}" stroke-width="1.5" opacity="0.7"/>
+                <circle class="element-shape" cx="0" cy="0" r="4" fill="none" stroke="${color}" stroke-width="1.5" opacity="0.4"/>
+            `;
+        default:
+            return `<rect class="element-shape" x="-8" y="-12" width="16" height="24" rx="3"
+                          fill="${color}" opacity="0.2" stroke="${color}" stroke-width="1.5"/>`;
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* Intensity Images                                                    */
+/* ------------------------------------------------------------------ */
+function addIntensityImage(elementLabel, imageBase64, phase) {
+    document.getElementById('intensity-section').style.display = '';
+    const gallery = document.getElementById('intensity-gallery');
+
+    // Remove existing card for this element+phase if it exists
+    const existingId = `intensity-${elementLabel}-${phase}`;
+    const existing = document.getElementById(existingId);
+    if (existing) existing.remove();
+
+    const card = document.createElement('div');
+    card.className = 'intensity-card';
+    card.id = existingId;
+    card.innerHTML = `
+        <img src="data:image/png;base64,${imageBase64}" alt="${escHtml(elementLabel)} intensity" />
+        <div class="card-label">${escHtml(elementLabel)} (${escHtml(phase)})</div>
+    `;
+    card.onclick = () => openModal(`data:image/png;base64,${imageBase64}`);
+    gallery.appendChild(card);
+}
+
+/* ------------------------------------------------------------------ */
+/* Metrics Table                                                       */
+/* ------------------------------------------------------------------ */
+function updateMetrics(intermediates, finalMetrics, runId, wallTime) {
+    document.getElementById('metrics-section').style.display = '';
+    const tbody = document.getElementById('metrics-body');
+    tbody.innerHTML = '';
+
+    if (!intermediates || intermediates.length === 0) return;
+
+    intermediates.forEach(inter => {
+        const label = inter.element_label || '';
+        const idx = inter.element_index;
+        const after = inter.after || inter.before || {};
+        const etype = getElementType(label);
+
+        const fwhmX = after.fwhm_x_um;
+        const fwhmY = after.fwhm_y_um;
+        const peak = after.peak_intensity;
+        const flux = after.total_flux;
+        const edge = after.edge_intensity_ratio_x;
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td><span style="color:var(--text-primary);font-weight:500">${escHtml(label)}</span></td>
+            <td><span class="element-type-badge type-${etype}">${escHtml(etype)}</span></td>
+            <td>${fmtMetric(fwhmX)}</td>
+            <td>${fmtMetric(fwhmY)}</td>
+            <td>${fmtSci(peak)}</td>
+            <td>${fmtSci(flux)}</td>
+            <td class="${edgeClass(edge)}">${fmtMetric(edge)}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+
+    // Add final summary row
+    if (finalMetrics) {
+        const tr = document.createElement('tr');
+        tr.style.borderTop = '2px solid var(--accent-blue)';
+        tr.innerHTML = `
+            <td><span style="color:var(--accent-cyan);font-weight:700">FINAL</span></td>
+            <td></td>
+            <td style="color:var(--accent-cyan)">${fmtMetric(finalMetrics.fwhm_x_um)}</td>
+            <td style="color:var(--accent-cyan)">${fmtMetric(finalMetrics.fwhm_y_um)}</td>
+            <td style="color:var(--accent-cyan)">${fmtSci(finalMetrics.peak_intensity)}</td>
+            <td style="color:var(--accent-cyan)">${fmtSci(finalMetrics.total_flux)}</td>
+            <td></td>
+        `;
+        tbody.appendChild(tr);
+    }
+}
+
+function getElementType(label) {
+    const elem = beamlineElements.find(e => e.label === label);
+    return elem ? (elem.type || '').toLowerCase() : 'unknown';
+}
+
+function fmtMetric(v) {
+    if (v === undefined || v === null) return '<span style="color:var(--text-muted)">-</span>';
+    return typeof v === 'number' ? v.toFixed(2) : String(v);
+}
+
+function fmtSci(v) {
+    if (v === undefined || v === null) return '<span style="color:var(--text-muted)">-</span>';
+    if (typeof v === 'number') return v.toExponential(2);
+    return String(v);
+}
+
+function edgeClass(v) {
+    if (v === undefined || v === null) return '';
+    if (v > 0.01) return 'metric-bad';
+    if (v > 0.001) return 'metric-warn';
+    return 'metric-good';
+}
+
+/* ------------------------------------------------------------------ */
+/* Modal                                                               */
+/* ------------------------------------------------------------------ */
+function openModal(src) {
+    document.getElementById('modal-img').src = src;
+    document.getElementById('modal').classList.add('visible');
+}
+
+function closeModal() {
+    document.getElementById('modal').classList.remove('visible');
+}
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeModal();
+});
+
+/* ------------------------------------------------------------------ */
+/* Init                                                                */
+/* ------------------------------------------------------------------ */
+connect();
+</script>
+</body>
+</html>
