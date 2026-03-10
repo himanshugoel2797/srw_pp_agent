@@ -4,7 +4,7 @@
 
 This document describes the architecture of an MCP (Model Context Protocol) server that wraps SRW's Python bindings (`srwpy`) and the prompting strategy for an AI agent that iteratively tunes wavefront propagation parameters and generates validity reports for beamline definitions.
 
-**Core loop:** The agent receives a beamline definition → builds analytical expectations → runs simulations with candidate propagation parameters → compares results to expectations → diagnoses discrepancies → adjusts parameters or modifies the beamline → repeats until results are physically consistent and computationally efficient.
+**Core loop:** The agent receives a beamline definition → reasons about how the optical system works → selects initial propagation parameters based on beamline physics → runs simulations → diagnoses discrepancies → adjusts parameters → validates with analytical estimates and idealization tests → repeats until results are physically consistent and computationally efficient.
 
 ---
 
@@ -638,107 +638,46 @@ Encodes the accumulated heuristics for propagation parameter selection:
 ```markdown
 ## Propagator Mode Selection Heuristics
 
+**Default recommendation: prefer mode 1 for drift spaces.** Mode 1
+(quadratic phase subtraction with grid resize) is substantially more
+robust to undersampling than mode 0. Reserve mode 0 for cases where
+the wavefront is genuinely flat and confirmed to converge.
+
 1. **Near a waist (within ~1 Rayleigh range):**
-   Use mode 0 (standard). The beam phase is relatively flat.
+   Mode 0 can work, but mode 1 is often equally good or better.
 
 2. **Far from waist, large divergence:**
-   Use mode 1 or 2 (quadratic phase subtraction). The quadratic phase
-   varies rapidly and needs to be factored out for accurate sampling.
+   Mode 1 or 2 (quadratic phase subtraction) is strongly preferred.
    - Mode 1: allows grid resize (use when beam size changes significantly)
-   - Mode 2: fixed grid (use when you need consistent mesh across elements)
+   - Mode 2: fixed grid (use for astigmatic beamlines)
 
 3. **Propagating FROM a waist into far field:**
-   Use mode 3. Optimized for the waist→far-field transition.
+   Mode 3 — optimized for the waist→far-field transition.
 
 4. **Propagating TO a waist/focus:**
-   Use mode 4. Optimized for far-field→waist transition.
+   Mode 4 — optimized for far-field→waist transition.
 
-**CRITICAL — Modes 3 and 4 invert range/resolution meaning:**
-
-Modes 0/1/2 use 2 FFTs, so range controls window size and resolution
-controls point density, as you'd expect.
-
-Modes 3/4 use only 1 FFT. Because a single Fourier transform swaps
-spatial and frequency domains, the meaning of the resize parameters
-is inverted:
-- To increase output **window size** → increase the **resolution** param
-- To increase output **point density** → increase the **range** param
-
-This is the most common source of "I changed range but nothing improved"
-errors when using modes 3/4. Always double-check which mode is active
-before adjusting range or resolution.
+**CRITICAL — Modes 3 and 4 invert range/resolution meaning** (see
+full resource for details).
 
 ## Range and Resolution Heuristics
 
-- **Range factor:** The observation window should be ≥3× the expected beam
-  size (FWHM) to avoid clipping artifacts. If flux is being lost, increase
-  range first.
+- Prefer increasing range and resolution upstream once, rather than
+  applying frequent small adjustments at successive elements.
+- Range factor ≥3× expected beam FWHM.
+- Resolution factor: start at 1.0, increase if FWHM is below expected
+  diffraction limit or oscillates.
 
-- **Wavefront edge margin:** The outer ~10% of the mesh on each side
-  should have zero (or negligible) intensity. Check edge_intensity_ratio
-  in the simulation output — if it is significantly above zero, the beam
-  is spilling off the mesh and results are unreliable. Increase the range
-  factor until the edges are clean. This is a necessary (not sufficient)
-  condition for correctness.
+## Diffraction Limit Considerations
 
-- **Resolution factor:** Start at 1.0. If FWHM is below diffraction limit
-  or oscillates, increase resolution. Values above 2-3 are rarely needed
-  and get expensive fast.
+The per-element diffraction limit (0.44λ/NA) is a reference, not a
+hard lower bound. The actual diffraction limit depends on the beam's
+radius of curvature at the element — set by the full upstream optics.
 
-- **After focusing elements:** The beam size changes dramatically.
-  Increase range factor (2-4×) to capture the full beam, then increase
-  resolution if the focal spot is under-resolved.
+## Element Sampling, Grid Budget, and Red Flags
 
-- **Long drifts far from focus:** The beam expands. May need larger range
-  but can often decrease resolution since the phase varies more slowly.
-
-## Element Sampling Requirements
-
-Before worrying about propagation accuracy, the computational mesh must
-have enough points to faithfully represent each optical element's
-transmission/reflection profile. If the grid is too coarse, sharp
-features get rounded off and the element effectively becomes a different
-optic than what was intended.
-
-- **Zone plates:** The mesh must resolve the outermost zone. The
-  outermost zone width is typically tens of nanometers, while the beam
-  window may span hundreds of microns. This often requires a very large
-  resolution rescale (potentially 10-50×) immediately before the zone
-  plate. Without this, the fine zone structure is smeared out and the
-  zone plate behaves like a blurry approximation of itself.
-
-- **Diffraction gratings:** The mesh must resolve individual grating
-  lines. Similar to zone plates, the pitch of the grating (line spacing)
-  sets the minimum sampling requirement. The number of points across the
-  beam window must be sufficient that the grating period spans multiple
-  pixels.
-
-- **Apertures and obstacles:** Sharp edges must land on or very near
-  grid points. If the mesh is too coarse, the edge position gets rounded
-  to the nearest grid point, effectively changing the aperture size. For
-  a circular aperture, this also distorts the shape. Ensure enough
-  resolution that the edge position error is small relative to the
-  feature size.
-
-- **Mirrors at grazing incidence:** The projected footprint on the
-  mirror surface may be very elongated. The mesh needs to resolve
-  any surface features (figure errors, slope errors) along the
-  tangential direction. For flat mirrors this is less critical, but
-  for curved mirrors the sampling along the tangential direction
-  affects how well the curvature is represented.
-
-**General rule:** Before an element with fine spatial structure,
-check whether the current mesh pitch (window_size / num_points) is
-small enough to resolve the element's smallest feature. If not,
-increase the resolution rescale factor for the preceding propagation
-step. This is a hard sampling requirement — no choice of propagator
-mode will compensate for under-resolving the element itself.
-
-## Red Flags
-- FWHM < 0.5× diffraction limit → almost certainly aliasing
-- Flux ratio < 0.8 without apertures → beam clipped by mesh range
-- edge_intensity_ratio > 0 → beam extends to mesh boundary, increase range
-- FWHM changes >10% when resolution changes by 0.5× → not converged
+(See full resource for element-specific sampling rules, grid point
+budget requirements at apertures, and diagnostic red flags.)
 ```
 
 #### `srw://diagnostic-patterns`
@@ -749,90 +688,35 @@ Common failure patterns the agent should recognize. These are reasoning aids, no
 
 | Symptom | Likely causes to investigate |
 |---------|----------------------------|
-| FWHM well below diffraction limit | Aliasing; try higher resolution or different propagator mode |
+| FWHM well below expected diffraction limit | Likely aliasing — but verify which diffraction limit is relevant (per-element geometric NA is not a hard bound) |
 | FWHM much larger than estimate | Beam clipping (range too small); wrong propagator mode near focus |
-| Asymmetric deviation (x ok, y not) | Astigmatism; try different range/resolution values per axis, or switch to mode 2 with higher point count |
 | Flux loss without apertures | Range too small (beam clipped at edge of mesh) |
 | edge_intensity_ratio > 0 | Beam reaches mesh boundary; increase range before diagnosing anything else |
-| FWHM oscillates with resolution | Not converged; try higher resolution or mode 1/2 |
-| Idealized element gives same result | Propagation params are likely correct for that element |
-| Idealized element gives different result | Realistic element introduces effects (e.g. slope errors, aberrations) that need more careful resolution |
 
 ## Interpretation Guidelines
 
 ### Trusting analytical estimates
 
-Not all analytical estimates are equally reliable. The agent should use
-the metrics from compute_analytical_estimates to judge how much weight
-to give each estimate:
+- The per-element diffraction limit is a reference, not a hard bound.
+  The actual diffraction limit depends on the wavefront's radius of
+  curvature at the element, set by the full upstream optical system.
+- Analytical estimates are for validation after initial tuning, not as
+  the primary basis for parameter selection.
+- Fully illuminated vs. underfilled elements require different NA
+  estimates (element_na vs. effective_na).
 
-- **Fully illuminated element (beam_to_aperture_ratio ≥ 1.0 or
-  beam_na > element_na):** The element's physical size is the limiting
-  aperture. The element_na-based diffraction limit is the authoritative
-  estimate for the contribution of this element. The beam underfill
-  doesn't matter because the element truncates the beam.
+### Terminology precision
 
-- **Underfilled element (beam_to_aperture_ratio << 1.0 or
-  beam_na << element_na):** The beam's own divergence sets the effective
-  NA, not the element size. The diffraction limit from element_na will
-  overestimate the spot size. Use effective_na (which equals beam_na
-  in this case) for the diffraction limit.
-
-- **Large object_to_focal_ratio (>>1):** The source is very far from the
-  focusing element relative to its focal length. Geometric
-  demagnification is tiny (image ≈ f, not image ≈ object × f/object).
-  Diffraction almost certainly dominates. If the simulation shows a
-  spot much larger than the diffraction limit, suspect demagnification
-  is not the cause — look at aberrations or propagation errors instead.
-
-- **Small object_to_focal_ratio (~1-3):** Source is relatively close to
-  the optic. The geometric image size can be comparable to the
-  diffraction limit. Both contributions matter and the FWHM will be
-  somewhere between the two (not simply the max, since they convolve).
-
-- **Fresnel number >>1 at an aperture:** Geometric optics approximation
-  is reasonable. Diffraction from the aperture edges is negligible and
-  shouldn't significantly broaden the beam beyond the geometric
-  prediction.
-
-- **Fresnel number ~1 at an aperture:** Diffraction from the aperture
-  is significant. The beam profile will have diffraction fringes and the
-  FWHM will differ from the geometric prediction. The Gaussian
-  analytical estimate will be unreliable here — rely on convergence
-  tests and idealization tests instead.
-
-- **Fresnel number <<1:** Far-field / Fraunhofer regime. The beam
-  profile is essentially the Fourier transform of the aperture, and
-  the spot size is set entirely by diffraction.
-
-### Wavefront curvature and propagator modes
-
-- **Large wavefront_roc (relative to propagation distance):** The
-  wavefront is nearly flat. Mode 0 is appropriate.
-
-- **Small wavefront_roc (comparable to or less than propagation
-  distance):** The quadratic phase varies rapidly across the mesh.
-  Modes 1-4 are needed to factor out this curvature. The ratio
-  distance_from_waist / rayleigh_range indicates how far from flat
-  the wavefront is — values >>1 mean strong curvature.
+Use precise terminology in all reasoning and reports — see full
+resource for guidelines on "secondary source," "diffraction-limited,"
+"numerical aperture," "beam waist vs. focal spot," and
+"collimation vs. low divergence."
 
 ### General principles
 
-- A 10-20% deviation between simulation and analytical estimate is often
-  acceptable and explainable (non-Gaussian beam shape, clipping effects).
-  The agent should reason about WHY the deviation exists, not just flag it.
-
-- When the analytical estimate is known to be unreliable (e.g. beam is
-  heavily clipped, far from Gaussian, Fresnel number ~1), the agent
-  should state this and rely more on convergence tests and idealization
-  tests for validation.
-
-- Flux conservation is a strong independent check. If flux is conserved
-  but FWHM disagrees with estimate, the simulation is likely correct and
-  the estimate is the problem.
-
 - Always check edge_intensity_ratio before diagnosing any other issue.
-  If the beam is hitting the mesh boundary, nothing else is trustworthy.
+- Flux conservation is necessary but not sufficient for correctness.
+- A 10-20% deviation from estimates is often physical, not numerical.
 ```
 
 #### `srw://idealization-test-guide`
@@ -894,55 +778,81 @@ the beam behavior at any given point.
 
 1. **Understand the beamline:** Load the definition. Identify all optical
    elements, their types, positions, and key parameters (focal lengths,
-   grazing angles, apertures).
+   grazing angles, apertures). Reason about how the beamline works as an
+   optical system: What is the source? Which elements are focusing and
+   in which plane? Where are the conjugate image planes? Which elements
+   define the beam (apertures, mirror acceptances)? What is the expected
+   magnification chain? How does wavefront curvature evolve through the
+   system? This physical understanding must come *before* any parameter
+   selection or simulation — it informs every subsequent decision.
 
-2. **Build expectations:** Compute analytical estimates for beam size at
-   each element using Gaussian beam propagation. Look at the raw numbers:
-   demagnification vs. diffraction limit, beam-to-aperture ratios,
-   distance from waist. Reason about where the Gaussian approximation
-   will break down and where you should trust it.
+2. **Respect user-specified tuning scope:** If the user specifies that
+   certain elements' propagation parameters should be tuned, tune ONLY
+   those elements. Do not modify parameters for other elements. If no
+   specific elements are requested, tune propagation parameters for the
+   entire beamline.
 
 3. **Select initial propagation parameters:** Based on the heuristics in
    the srw://tuning-heuristics resource, choose propagator modes and
-   range/resolution factors for each element. Use the distance_from_waist
-   and rayleigh_range values from the estimates to guide mode selection.
-   Also check smallest_feature_size_m for each element — if an element
-   has fine spatial structure (zone plates, gratings, sharp apertures),
-   the mesh pitch at that element must be smaller than the feature size.
-   This may require a large resolution rescale on the preceding step.
-   Err on the side of higher fidelity for the first run.
+   range/resolution factors for each element (or only the user-specified
+   elements). Prefer mode 1 (quadratic phase subtraction) for drift
+   spaces — it is substantially more robust to undersampling than mode 0.
+   Reserve mode 0 for cases where the wavefront is genuinely flat and
+   mode 0 is confirmed to converge. Prefer increasing range and
+   resolution upstream once rather than applying frequent small
+   adjustments at successive elements. Also check smallest_feature_size_m
+   for each element — if an element has fine spatial structure (zone
+   plates, gratings), the mesh pitch at that element must be smaller than
+   the feature size. This may require a large resolution rescale on the
+   preceding step. Err on the side of higher fidelity for the first run.
 
-4. **Run and diagnose:** Execute the propagation and compare results to
-   analytical estimates. For each discrepancy:
+4. **Run and diagnose:** Execute the propagation. Compare results to
+   physical expectations for the beamline. For each discrepancy:
    - Look at the numbers: how far off? Which axis? Is flux conserved?
    - Form a hypothesis about the cause (aliasing, clipping, wrong mode)
    - Test the hypothesis by changing one parameter at a time
    - Confirm the fix by checking convergence
 
-5. **Validate with idealization tests:** Replace focusing elements with
+5. **Reason with analytical estimates:** After the initial beamline is
+   tuned and producing reasonable results, compute analytical estimates
+   and compare. Use the estimates to validate and refine — not as the
+   starting point for parameter selection. The Gaussian beam model is an
+   approximation; the simulation is the ground truth. Look at
+   demagnification vs. diffraction limit, beam-to-aperture ratios,
+   distance from waist. Reason about where the Gaussian approximation
+   breaks down and where you should trust it. Note that the per-element
+   diffraction limit (0.44λ/NA) is a reference, not a hard lower bound —
+   the actual diffraction limit depends on the beam's radius of curvature
+   at the element, which encodes the full upstream optical system.
+
+6. **Validate with idealization tests:** Replace focusing elements with
    ideal thin-lens + aperture equivalents. Test all at once first — if
    results agree, parameters are likely correct. If they disagree, test
    one element at a time to isolate the issue. Reason about whether any
    remaining discrepancy is numerical (needs parameter adjustment) or
    physical (the realistic element has effects the ideal model doesn't).
 
-6. **Optimize:** Once results match expectations (or you can explain why
+7. **Optimize:** Once results match expectations (or you can explain why
    they shouldn't), reduce resolution/range to find the most
    computationally efficient settings that still converge.
 
-7. **Report:** Compose a validity report using the structured data from
+8. **Report:** Compose a validity report using the structured data from
    get_report_data. Write the narrative yourself — explain which physical
    effects dominate at each point, why deviations exist, and why you
-   trust (or don't trust) the result.
+   trust (or don't trust) the result. Use precise terminology throughout
+   (see srw://diagnostic-patterns for terminology guidelines).
 
 ## Key principles
 
 - **Change one thing at a time.** When diagnosing, modify a single
   parameter and observe the effect before changing another.
 
-- **Trust the physics.** If a focal spot is below the diffraction limit,
-  the simulation is wrong, not the optics. Increase resolution or change
-  the propagator mode.
+- **Trust the physics.** If a focal spot is well below the expected
+  diffraction limit for the full optical system, the simulation is likely
+  wrong. Increase resolution or change the propagator mode. But remember:
+  the per-element diffraction limit is not a hard lower bound — the
+  achievable spot depends on the wavefront curvature at the element,
+  which is set by the entire upstream beamline.
 
 - **You do the reasoning.** The tools return numbers. You interpret what
   they mean physically. When you see a beam-to-aperture ratio of 0.9,
@@ -973,10 +883,24 @@ the beam behavior at any given point.
   a result is correct, replace the suspicious element with its ideal
   equivalent and compare. This separates numerical issues from physics.
 
+- **Use precise terminology.** Your reasoning may be reviewed by
+  experienced physicists. Use terms correctly: a "secondary source" is
+  a real or virtual image of the source created by focusing optics, not
+  just any aperture after the source. A "diffraction-limited" spot is
+  one whose size is determined by diffraction (0.44λ/NA), not merely a
+  small spot. "Collimated" means flat wavefronts, not just low
+  divergence. See srw://diagnostic-patterns for a full terminology guide.
+
+- **Respect tuning scope.** When the user specifies which elements to
+  tune, only modify those elements' propagation parameters. Do not
+  adjust parameters for other elements, even if you think they could be
+  improved. If the user does not specify, tune the full beamline.
+
 ## Propagator modes (quick reference)
 The mode is a single value per element, applied to both axes (2D propagator).
-- 0: Standard, 2 FFTs (near waist)
+- 0: Standard, 2 FFTs (near waist, flat phase)
 - 1: Quadratic phase subtraction, 2 FFTs (far from waist, grid resizes)
+  — **preferred default for drift spaces** due to robustness to undersampling
 - 2: Quadratic phase subtraction, 2 FFTs, fixed grid
 - 3: From waist → far field, 1 FFT
 - 4: To waist ← far field, 1 FFT
@@ -998,7 +922,10 @@ resolution to get both axes right simultaneously.
 ## Diagnostic red flags (check in this order)
 - edge_intensity_ratio > 0 → beam hits mesh boundary; fix this FIRST
   before diagnosing anything else (increase range)
-- FWHM < diffraction limit → aliasing (increase resolution or change mode)
+- FWHM well below expected diffraction limit for the full optical system
+  → likely aliasing (increase resolution or change mode). Note: the
+  per-element geometric-NA diffraction limit is a reference, not a hard
+  floor — check the effective NA accounting for wavefront curvature.
 - Unexpected flux loss → mesh range too small (increase range)
 - FWHM oscillates with resolution → not converged
 - x/y disagree when optics are symmetric → check per-axis parameters
@@ -1042,86 +969,109 @@ User: Here's my beamline definition: [JSON blob with undulator source,
 Agent:
   <planning>
   Loading the beamline to understand the optical layout before
-  making any parameter choices.
+  making any parameter choices. I need to reason about how this
+  beamline works as an optical system before selecting any
+  propagation parameters.
   </planning>
 
   → calls load_beamline(...)
 
   <diagnosis>
   This is an undulator beamline at 12 keV with:
-  - M1 (flat mirror) at 28m, 3 mrad grazing angle
-  - M2 (KB vertical focusing) at 35m, f=2.5m
-  - M3 (KB horizontal focusing) at 36m, f=2.0m
-  - CRL (compound refractive lens) at 37m
-  - Sample at 40m
+  - M1 (flat mirror) at 28m, 3 mrad grazing angle — acts as a
+    beam-defining aperture in the vertical plane (tangential
+    acceptance ~1.2 mm at 3 mrad grazing). Not a focusing element.
+  - M2 (KB vertical focusing, elliptical) at 35m — conjugate
+    focusing with p=35m, q=5m, demagnification ~7:1 in vertical.
+  - M3 (KB horizontal focusing, elliptical) at 36m — conjugate
+    focusing with p=36m, q=4m, demagnification ~9:1 in horizontal.
+  - CRL (compound refractive lens) at 37m — additional focusing,
+    need to check focal length relative to sample distance.
+  - Sample at 40m.
 
-  I need the analytical estimates to understand where the foci
-  are and what beam sizes to expect.
+  Optical analysis: The KB pair (M2+M3) creates a demagnified image
+  of the undulator source at approximately the sample position. M1
+  is a flat deflecting mirror that limits the vertical acceptance
+  but does not focus. The CRL provides additional focusing —
+  depending on its focal length, it may refocus the KB image or
+  act as a condenser.
+
+  The vertical beam at M1 has ~1.2 mm acceptance (tangential_size
+  × sin(grazing_angle)), while the undulator beam at 28m is
+  probably ~0.5-1 mm (depending on emittance). So M1 may partially
+  clip the beam vertically.
+
+  For initial propagation parameters, I'll use mode 1 (quadratic
+  phase subtraction) as the default for all drift spaces — it is
+  robust to undersampling and handles the dominant phase curvature
+  well. I'll set generous range factors upstream and keep them
+  stable through the beamline rather than adjusting at every element.
+
+  - D1 (source to M1, 28m drift): mode 1, range 3×. Setting
+    generous range here to avoid chasing expansions downstream.
+  - D2 (M1 to M2): mode 1, range 1.0 (carrying upstream grid).
+  - D3 (M2 to M3, astigmatic — V converging, H diverging):
+    mode 2, range 1.0. Mode 2 (fixed grid) handles the different
+    Rayleigh ranges per axis.
+  - D4 (M3 through CRL to sample): mode 1, range 1.0.
+
+  Resolution at 1.5× everywhere for the first run.
   </diagnosis>
 
-  → calls compute_analytical_estimates()
-
-  <diagnosis>
-  Looking at the raw numbers:
-  - At M2 focus: demagnification_y = 0.4 μm, diffraction_limit_y = 1.1 μm.
-    Since diffraction_limit >> demagnification, this focus is
-    diffraction-dominated. NA is set by M2's 0.8 mrad acceptance.
-  - beam_to_aperture_ratio at M1 is 0.85 — the beam nearly fills M1.
-    This means the Gaussian estimate may underestimate the FWHM at
-    downstream foci due to diffraction from the clipped wings.
-  - distance_from_waist at sample is 2.2m in vertical, with
-    rayleigh_range = 0.3m — we're ~7 Rayleigh ranges from the waist.
-    Need mode 1 or 3 for the last drift, not mode 0.
-
-  For initial propagation parameters (mode is single value, both axes):
-  - D1 (before M2): far from waist → mode 1
-  - D2 (M2 to M3): converging to V focus but H still diverging.
-    This is astigmatic — mode 2 is a good compromise here.
-  - D3 (after focus through CRL): re-expanding → mode 1
-  - D4 (long drift to sample): far from focus → mode 1
-
-  Setting range factors generously (3×) and resolution at 1.5.
-  </planning>
-
-  → calls set_propagation_params({"D1": {mode: 1, ...}, "D2": {mode: 2, ...}, ...})
+  → calls set_propagation_params({"D1": {mode: 1, ...}, "D2": {mode: 1, ...},
+      "D3": {mode: 2, ...}, "D4": {mode: 1, ...}})
   → calls run_propagation()
-  → calls compare_to_estimates()
 
   <diagnosis>
-  Results at sample: simulated FWHM_y = 18.3 μm, estimated = 15.1 μm,
-  deviation = +21%. Flux ratio = 0.79.
+  First pass results at sample: FWHM_y = 18.3 μm, FWHM_x = 12.1 μm.
+  Flux ratio = 0.79.
 
-  First checking edge_intensity_ratio — at D1 it's 0.02, which means
-  there's still some intensity at the mesh edges. That could explain
-  the flux loss.
-
-  The beam_to_aperture_ratio at M1 was 0.85, so some clipping is
-  physical, but edge_intensity_ratio > 0 suggests the mesh itself is
-  also too small. I'll increase range first and see if both improve.
+  Checking edge_intensity_ratio first — at D1 it's 0.02, which means
+  there's still some intensity at the mesh edges. This must be fixed
+  before any other diagnosis. I'll increase the source mesh range
+  upstream rather than patching at D1.
   </diagnosis>
 
   → calls test_hypothesis(
-      hypothesis="Mesh range too small — increasing range at D1",
+      hypothesis="Mesh range too small upstream — increasing range at D1",
       param_changes={"D1": {range_x: 4.0, range_y: 4.0}})
 
   [... after several iterations, results converge ...]
 
   <planning>
-  Results now agree within 12%. The remaining deviation is likely
-  physical — the beam_to_aperture_ratio of 0.85 at M1 means the
-  beam isn't truly Gaussian at the foci. Before declaring success,
-  I should validate with an idealization test.
+  Results are stable. Now I'll compute analytical estimates to
+  validate the simulation results and understand any deviations.
   </planning>
+
+  → calls compute_analytical_estimates()
+  → calls compare_to_estimates()
+
+  <diagnosis>
+  Comparison: simulated FWHM_y = 17.8 μm vs. estimated 15.1 μm,
+  deviation = +18%. The beam_to_aperture_ratio at M1 is 0.85 — the
+  beam nearly fills M1's vertical acceptance, so the Gaussian
+  approximation is unreliable here (the beam is partially clipped,
+  making it non-Gaussian). This explains the deviation: the estimate
+  assumes a Gaussian beam, but the real beam has truncated wings.
+
+  The per-element diffraction limit at M2 is 1.1 μm (based on M2's
+  geometric NA of 0.8 mrad). But the actual focal spot also depends
+  on the wavefront curvature arriving at M2, which is shaped by M1's
+  clipping. The simulation result of 17.8 μm is physically reasonable.
+
+  Before declaring success, I should validate with an idealization test.
+  </diagnosis>
 
   → calls idealize_element(element_labels="all")
   → calls run_propagation()
 
   <diagnosis>
-  Idealized beamline gives FWHM_y = 17.9 μm at sample vs. 18.3 μm
-  with realistic elements. Only 2% difference — the propagation
+  Idealized beamline gives FWHM_y = 17.5 μm at sample vs. 17.8 μm
+  with realistic elements. Only 1.7% difference — the propagation
   parameters are handling the realistic elements correctly. The
-  12% deviation from the analytical estimate is physical (clipping
-  at M1), not numerical.
+  18% deviation from the Gaussian analytical estimate is a physical
+  effect (partial beam clipping at M1 producing a non-Gaussian
+  wavefront), not a numerical artifact.
   </diagnosis>
 
   → calls restore_elements(element_labels="all")
@@ -1136,9 +1086,12 @@ Agent:
 ```
 Tune the propagation parameters for this beamline: {beamline_json}
 
-Start by loading the beamline and computing analytical estimates.
-Then select initial propagation parameters, run the simulation,
-and iterate until the results match expectations within 20%.
+Start by loading the beamline and reasoning about how the optical
+system works (source properties, focusing geometry, conjugate planes,
+beam-defining apertures). Then select initial propagation parameters
+based on the beamline physics and heuristics, run the simulation,
+and iterate until results are physically consistent. Use analytical
+estimates to validate after initial tuning, not as the starting point.
 Finally, optimize for speed and generate a validity report.
 ```
 

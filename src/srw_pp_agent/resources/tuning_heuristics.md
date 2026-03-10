@@ -6,16 +6,31 @@ the heuristic says otherwise. In particular, drifts can sometimes work
 better with a different mode than the one suggested below, especially
 near transitions between regimes (e.g. ~1 Rayleigh range from waist).
 
+**Default recommendation: prefer mode 1 for drift spaces.** The mode 1
+propagator (quadratic phase subtraction with grid resize) is substantially
+more robust to undersampling than mode 0, because it factors out the
+dominant quadratic phase curvature before the FFT step. This means the
+residual phase varies more slowly and can be faithfully represented on a
+coarser grid. For drift spaces — which make up the majority of
+propagation steps — mode 1 is a safe default that tolerates modest grids
+well. Reserve mode 0 for cases where the wavefront is genuinely flat
+(very near a waist, within a fraction of the Rayleigh range) and you
+have confirmed that mode 0 converges on the available grid.
+
 1. **Near a waist (within ~1 Rayleigh range):**
-   Mode 0 (standard) is usually a good starting point. The beam phase
-   is relatively flat.
+   Mode 0 (standard) can work when the beam phase is relatively flat,
+   but mode 1 is often equally good or better here because of its
+   robustness. Only prefer mode 0 if mode 1 shows issues (rare) or you
+   need to avoid grid resizing for a specific reason.
 
 2. **Far from waist, large divergence:**
-   Mode 1 or 2 (quadratic phase subtraction) typically works well. The
+   Mode 1 or 2 (quadratic phase subtraction) is strongly preferred. The
    quadratic phase varies rapidly and needs to be factored out for
    accurate sampling.
    - Mode 1: allows grid resize (use when beam size changes significantly)
-   - Mode 2: fixed grid (use when you need consistent mesh across elements)
+   - Mode 2: fixed grid (use when you need consistent mesh across elements,
+     e.g. astigmatic beamlines where the two axes have very different
+     Rayleigh ranges)
 
 3. **Propagating FROM a waist into far field:**
    Mode 3 is often a good choice. Optimized for the waist→far-field transition.
@@ -101,6 +116,19 @@ the wavefront onto a new grid, which introduces small numerical errors.
 These errors accumulate: a sharp reduction followed shortly by a large
 expansion (or vice versa) compounds interpolation losses from both steps.
 The goal is to achieve a correct result with the **fewest resizes**.
+
+- **Prefer increasing range and resolution upstream, once.** It is far
+  better to set a generous range and resolution at an early element (or
+  at the source mesh) and carry that grid through the beamline, than to
+  repeatedly increase and decrease range/resolution at successive
+  elements. Each resize is an interpolation step that introduces error.
+  If you know the beam will expand downstream (e.g. a long drift after
+  the source), increase the range *before* that expansion — at the
+  source or at the first drift — rather than chasing the expansion with
+  incremental increases at each subsequent element. Similarly, if a
+  downstream element requires fine pitch (e.g. a zone plate or grating),
+  increase resolution upstream of it once rather than applying multiple
+  smaller boosts along the way.
 
 - **Avoid shrink-then-expand patterns.** Shrinking the range or
   resolution at one element and then expanding it by a large factor a
@@ -201,8 +229,40 @@ and cannot be fixed downstream.
   (range / n_points) is fine enough to resolve the beam: at least 10-20
   points across the beam FWHM at the aperture.
 
+## Diffraction Limit Considerations
+
+The simple diffraction-limit estimate (0.44λ/NA) based on a single
+element's numerical aperture is **not** a hard lower bound on the
+achievable spot size. The actual diffraction limit depends on the
+wavefront's radius of curvature at the focusing element, which is set
+by the full upstream optical system — not just the element itself.
+
+For example, if an upstream optic partially collimates the beam or
+introduces wavefront curvature, the effective NA at a downstream
+focusing element can differ from the element's geometric NA. A converging
+beam arriving at a focusing mirror has a different effective numerical
+aperture than a plane wave arriving at the same mirror. The beam's
+radius of curvature encodes the cumulative effect of all upstream optics,
+and this is what determines the actual diffraction-limited spot size.
+
+In practice:
+- The per-element diffraction limit from `compute_analytical_estimates`
+  is a useful *reference* for the contribution of that element, but the
+  actual achievable spot size depends on the coherent interaction of the
+  full beamline.
+- A simulation result slightly below a single element's diffraction
+  limit does not automatically indicate aliasing — it may reflect the
+  combined effect of multiple optical elements. Conversely, a result
+  well above the single-element limit may indicate aberrations or
+  clipping effects from upstream optics.
+- When diagnosing whether a spot size is physically reasonable, consider
+  the wavefront curvature and effective NA at the focal plane, not just
+  the geometric acceptance of the nearest focusing element.
+
 ## Red Flags
-- FWHM < 0.5× diffraction limit → almost certainly aliasing
+- FWHM well below the expected diffraction limit for the full optical
+  system → likely aliasing (but verify against the effective NA, not
+  just a single element's geometric NA)
 - Flux ratio < 0.8 without apertures → beam clipped by mesh range
 - edge_intensity_ratio > 0.01 → beam extends to mesh boundary, increase
   range; this must be fixed regardless of whether a downstream element
