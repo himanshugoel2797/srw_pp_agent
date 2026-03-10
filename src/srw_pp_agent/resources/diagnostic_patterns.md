@@ -6,7 +6,7 @@
 | FWHM much larger than estimate | Beam clipping (range too small); wrong propagator mode near focus |
 | Asymmetric deviation (x ok, y not) | Astigmatism; try different range/resolution values per axis, or try mode 2 with higher point count |
 | Flux loss without apertures | Range too small (beam clipped at edge of mesh); increase range to fix clipping |
-| edge_intensity_ratio > 0.01 | Beam reaches mesh boundary; increase range before diagnosing anything else — even if a downstream element will clip the beam, mesh-edge clipping corrupts the wavefront numerically and must be fixed first. **This is never an acceptable tradeoff.** An edge ratio of 0.05+ means significant flux loss and wavefront corruption. Even 0.01 must be actively reduced. Do not leave edge ratios >0.01 with a note that it is "acceptable" — increase the range factor, switch propagation modes, or increase the source mesh until the ratio is below 0.01. |
+| edge_intensity_ratio > 0.01 | Beam reaches mesh boundary; increase range before diagnosing anything else — even if a downstream element will clip the beam, mesh-edge clipping corrupts the wavefront numerically and must be fixed first. **This is never an acceptable tradeoff.** An edge ratio of 0.05+ means significant flux loss and wavefront corruption. Even 0.01 must be actively reduced. Do not leave edge ratios >0.01 with a note that it is "acceptable" — increase the range factor, switch propagation modes, or increase the source range (not point count) until the ratio is below 0.01. |
 | edge_intensity_ratio 0.001–0.01 | Low-level beam wings at boundary. Acceptable only for hard-edged aperture diffraction (sinc/Airy wings decay as 1/x and extend very far). Verify the source is aperture diffraction, not grid clipping of a Gaussian beam. For Gaussian beams, this must be zero. |
 | FWHM oscillates with resolution | Not converged; try higher resolution, a different propagator mode, or both |
 | Idealized element gives same result | Propagation params are likely correct for that element |
@@ -187,7 +187,10 @@ reviewed by experienced physicists — use precise terminology:
   the resolution factor (Rx, Ry) until ≥150 points are achieved. A coarse
   grid at an aperture (e.g. 50-70 points) produces noisy, artifact-ridden
   profiles at all downstream elements. This is NOT an acceptable tradeoff —
-  it must be corrected by increasing resolution factors or source mesh size.
+  it must be corrected by increasing resolution factors (preferably at the
+  first optical element). Do not increase the source point count for this
+  purpose — increase the source range if the beam is clipped at the source,
+  but push extra grid points into the beamline via resolution factors.
 
 - **Noisy downstream profiles trace back to upstream grid bottlenecks.**
   If a beam profile shows high-frequency oscillations or noise (especially

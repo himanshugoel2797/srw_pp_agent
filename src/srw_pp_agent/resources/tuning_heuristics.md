@@ -118,17 +118,24 @@ expansion (or vice versa) compounds interpolation losses from both steps.
 The goal is to achieve a correct result with the **fewest resizes**.
 
 - **Prefer increasing range and resolution upstream, once.** It is far
-  better to set a generous range and resolution at an early element (or
-  at the source mesh) and carry that grid through the beamline, than to
-  repeatedly increase and decrease range/resolution at successive
+  better to set a generous range and resolution at an early element (e.g.
+  the first optical element) and carry that grid through the beamline,
+  than to repeatedly increase and decrease range/resolution at successive
   elements. Each resize is an interpolation step that introduces error.
   If you know the beam will expand downstream (e.g. a long drift after
-  the source), increase the range *before* that expansion — at the
-  source or at the first drift — rather than chasing the expansion with
-  incremental increases at each subsequent element. Similarly, if a
+  the source), increase the range *before* that expansion — at the first
+  optical element or the first drift — rather than chasing the expansion
+  with incremental increases at each subsequent element. Similarly, if a
   downstream element requires fine pitch (e.g. a zone plate or grating),
   increase resolution upstream of it once rather than applying multiple
   smaller boosts along the way.
+
+  **Do not increase the source point count (nx, ny) for propagation
+  purposes.** The source mesh point count controls the radiation
+  calculation sampling and should be left at its default. If more grid
+  points are needed downstream, increase the resolution factor at the
+  first optical element instead. Increasing the source *range* (spatial
+  window) is acceptable when the beam is being clipped at the source.
 
 - **Avoid shrink-then-expand patterns.** Shrinking the range or
   resolution at one element and then expanding it by a large factor a
@@ -224,7 +231,14 @@ and cannot be fixed downstream.
   size — this is correct and necessary.
 - Compensate with resolution boost (Rx, Ry > 1) to maintain point count.
 - If the upstream grid is too small to provide enough points even with
-  large Rx/Ry, increase the source mesh size (nx, ny) in mesh_params.
+  large Rx/Ry, increase the resolution factor at the first optical
+  element (e.g. S0) rather than changing the source point count (nx, ny).
+  The source mesh point count is set by the radiation calculation and
+  should not be tweaked for propagation convenience. Increasing the
+  source range (to cover a wider spatial window) is acceptable, but
+  adding more source points changes the radiation sampling and can have
+  unintended side effects. Push extra points into the beamline via
+  resolution factors at the first element instead.
 - After computing expected grid size, also verify that the pitch
   (range / n_points) is fine enough to resolve the beam: at least 10-20
   points across the beam FWHM at the aperture.
@@ -273,8 +287,9 @@ In practice:
   or enlarging the source mesh. Values of 0.001-0.01 are acceptable ONLY
   for hard-edged aperture diffraction (sinc/Airy wing spillover).
 - Grid < 100 points in any axis at any element → insufficient sampling;
-  increase resolution factor or source mesh size. This produces noisy
-  profiles downstream and is never acceptable.
+  increase resolution factor at the first optical element (not the source
+  point count). This produces noisy profiles downstream and is never
+  acceptable.
 - FWHM changes >10% when resolution changes by 0.5× → not converged
 - Sharp range/resolution decrease followed by large increase (or vice versa)
   within a few elements → excessive resizing; interpolation error accumulates
