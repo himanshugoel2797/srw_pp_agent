@@ -2,7 +2,7 @@
 
 | Symptom | Likely causes to investigate |
 |---------|----------------------------|
-| FWHM well below diffraction limit | Aliasing; try higher resolution, different propagator mode, or both |
+| FWHM well below expected diffraction limit | Likely aliasing; try higher resolution, different propagator mode, or both. But first verify which diffraction limit is relevant — the single-element geometric NA estimate is not a hard lower bound (see "Diffraction Limit Considerations" in tuning_heuristics.md). |
 | FWHM much larger than estimate | Beam clipping (range too small); wrong propagator mode near focus |
 | Asymmetric deviation (x ok, y not) | Astigmatism; try different range/resolution values per axis, or try mode 2 with higher point count |
 | Flux loss without apertures | Range too small (beam clipped at edge of mesh); increase range to fix clipping |
@@ -21,11 +21,24 @@ Not all analytical estimates are equally reliable. The agent should use
 the metrics from compute_analytical_estimates to judge how much weight
 to give each estimate:
 
+- **The per-element diffraction limit is a reference, not a hard bound.**
+  The diffraction limit at a focusing element depends on the wavefront's
+  radius of curvature arriving at that element, which encodes the
+  cumulative effect of all upstream optics. The simple 0.44λ/NA estimate
+  based on a single element's geometric acceptance is a useful reference
+  for that element's contribution, but the actual achievable spot size
+  is determined by the effective NA of the full optical system at the
+  focal plane. A simulation result slightly below a single element's
+  diffraction limit may be physically correct if upstream optics
+  contribute additional numerical aperture.
+
 - **Fully illuminated element (beam_to_aperture_ratio ≥ 1.0 or
-  beam_na > element_na):** The element's physical size is the limiting
-  aperture. The element_na-based diffraction limit is the authoritative
-  estimate for the contribution of this element. The beam underfill
-  doesn't matter because the element truncates the beam.
+  beam_na > element_na):** The element's physical size limits the
+  accepted cone of radiation. The element_na-based diffraction limit is
+  a good estimate for that element's contribution. However, the actual
+  focal spot also depends on the wavefront quality (curvature,
+  aberrations) arriving at the element, which is set by the full
+  upstream beamline.
 
 - **Underfilled element (beam_to_aperture_ratio << 1.0 or
   beam_na << element_na):** The beam's own divergence sets the effective
@@ -62,13 +75,20 @@ to give each estimate:
 
 ### Wavefront curvature and propagator modes
 
+- **Default for drift spaces: mode 1.** The mode 1 propagator (quadratic
+  phase subtraction with grid resize) is substantially more robust to
+  undersampling than mode 0, because it factors out the dominant
+  quadratic phase curvature before the FFT step. For most drift spaces,
+  mode 1 is a safe and reliable default.
+
 - **Large wavefront_roc (relative to propagation distance):** The
-  wavefront is nearly flat. Mode 0 is typically a good starting point,
-  but other modes may still work if convergence is better.
+  wavefront is nearly flat. Mode 0 can work, but mode 1 is equally
+  good and more robust. Only prefer mode 0 if you have a specific
+  reason (e.g. avoiding grid resize).
 
 - **Small wavefront_roc (comparable to or less than propagation
   distance):** The quadratic phase varies rapidly across the mesh.
-  Modes 1-4 are generally needed to factor out this curvature. The ratio
+  Modes 1-4 are needed to factor out this curvature. The ratio
   distance_from_waist / rayleigh_range indicates how far from flat
   the wavefront is — values >>1 mean strong curvature.
 
@@ -76,6 +96,45 @@ to give each estimate:
   (e.g. ~1 Rayleigh range from waist), multiple modes may give
   acceptable results. If one mode shows convergence issues, try
   others — the heuristics are guidelines, not guarantees.
+
+### Terminology precision
+
+When reasoning about beamline optics — especially in reports that may be
+reviewed by experienced physicists — use precise terminology:
+
+- **Secondary source:** A secondary source is a real or virtual image of
+  the primary source created by a focusing element. It is NOT a synonym
+  for any aperture or slit placed after the source. An aperture that
+  clips the beam is a beam-defining aperture, not a secondary source.
+  A secondary source has well-defined conjugate imaging properties
+  (object distance, image distance, magnification) and acts as a new
+  point-like or extended source for downstream optics.
+
+- **Diffraction limit vs. diffraction-limited spot:** The diffraction
+  limit (0.44λ/NA) describes the best achievable resolution for a given
+  numerical aperture. A "diffraction-limited spot" means the spot size
+  is determined primarily by diffraction rather than geometric
+  demagnification or aberrations. Do not call a spot "diffraction-limited"
+  simply because it is small — it must be close to the theoretical
+  0.44λ/NA value for the relevant effective NA.
+
+- **Numerical aperture (NA):** In synchrotron optics, NA is typically
+  set by the acceptance angle of the limiting optical element (mirror
+  length × grazing angle / distance, or aperture size / distance). Do
+  not confuse the element's geometric NA with the beam's effective NA,
+  which may be smaller if the beam underfills the element.
+
+- **Beam waist vs. focal spot:** A beam waist is the location of minimum
+  beam size along the propagation axis. A focal spot is the waist
+  created by a focusing element at or near its focal plane. Every focal
+  spot is a waist, but not every waist is a focal spot (e.g. the source
+  itself has a waist).
+
+- **Collimation vs. low divergence:** A collimated beam has flat
+  wavefronts (infinite radius of curvature). A beam can have low
+  divergence (small angular spread) without being collimated if it
+  has significant wavefront curvature. These are distinct concepts
+  in wave optics.
 
 ### General principles
 

@@ -9,11 +9,11 @@ X-ray beamline simulations.
 The server exposes SRW functionality through MCP tools and resources. An AI
 agent iteratively tunes propagation parameters by:
 
-1. Loading a beamline definition
-2. Computing analytical expectations (Gaussian beam / ABCD matrices)
+1. Loading a beamline definition and reasoning about the optical system
+2. Selecting initial propagation parameters based on beamline physics
 3. Running SRW simulations with candidate parameters
-4. Comparing results to expectations
-5. Diagnosing discrepancies and adjusting parameters
+4. Diagnosing discrepancies and adjusting parameters
+5. Validating with analytical estimates and idealization tests
 6. Repeating until results are physically consistent
 
 ## Installation
@@ -154,15 +154,17 @@ Static knowledge bases the agent can consult:
 
 ## Typical Tuning Workflow
 
-1. **`load_beamline`** — provide the beamline JSON definition
-2. **`compute_analytical_estimates`** — get expected beam sizes at each element
-3. **`set_propagation_params`** — set initial parameters based on heuristics
-4. **`run_propagation`** — simulate the full beamline
-5. **`compare_to_estimates`** — check simulation vs predictions
-6. **Diagnose and iterate** — adjust parameters based on discrepancies
-7. **`idealize_element`** — validate parameters with ideal optics
-8. **`run_convergence_test`** — verify numerical convergence
-9. **`get_report_data`** — gather data for the final validity report
+1. **`load_beamline`** — provide the beamline JSON definition; reason about the
+   optical system (focusing geometry, conjugate planes, beam-defining elements)
+2. **`set_propagation_params`** — set initial parameters based on beamline
+   physics and heuristics (prefer mode 1 for drifts, set generous range upstream)
+3. **`run_propagation`** — simulate the full beamline
+4. **Diagnose and iterate** — adjust parameters based on diagnostics
+5. **`compute_analytical_estimates`** + **`compare_to_estimates`** — validate
+   tuned results against Gaussian beam predictions
+6. **`idealize_element`** — validate parameters with ideal optics
+7. **`run_convergence_test`** — verify numerical convergence
+8. **`get_report_data`** — gather data for the final validity report
 
 A typical session uses 20-40 tool calls.
 
